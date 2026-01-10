@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>리뷰수집기</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="main-container">
+    <div class="header-section">
+      <div id="message"></div>
+    </div>
+    
+    <!-- 상태 메시지 영역 -->
+    <div class="status-message-box" id="status-message-box" style="display: none;">
+      <div class="status-message-content" id="status-message-content"></div>
+    </div>
+    
+    <div class="cards-container">
+      <div class="card">
+        <div class="form-row">
+          <label class="form-label">상품 링크</label>
+          <input 
+            type="url" 
+            id="product-url" 
+            class="input-box" 
+            placeholder="상품링크를 입력하세요"
+          />
+          <div class="tag-group">
+            <button class="tag active" id="naver-btn" data-platform="0">네이버</button>
+            <button class="tag" id="coupang-btn" data-platform="1">쿠팡</button>
+          </div>
+        </div>
+        <div class="status-box" style="display: none;">
+          <div class="status-row">
+            <span class="status-label">상태</span>
+            <span class="status-value" id="status">대기</span>
+          </div>
+        </div>
+        <div class="form-row">
+          <label class="form-label">정렬순서</label>
+          <select class="dropdown-select" id="sort-select">
+            <option value="0">랭킹순</option>
+            <option value="1">최신순</option>
+            <option value="2">평점낮은순</option>
+          </select>
+          <div class="checkbox-group" style="margin-left: auto; margin-right: 25px;">
+            <div class="checkbox checked" id="collect-qna"></div>
+            <label for="collect-qna" style="cursor: pointer; font-size: 12px; font-weight: 650; color: #aeb7ca;">QnA 동시수집</label>
+          </div>
+        </div>
+        <div class="form-row">
+          <label class="form-label">리뷰 페이지</label>
+          <div class="tag-group">
+            <button class="tag active" data-pages="0">5</button>
+            <button class="tag" data-pages="1">15</button>
+            <button class="tag" data-pages="2">50</button>
+            <button class="tag" data-pages="3">max</button>
+            <button class="tag" data-pages="4">직접 입력</button>
+          </div>
+        </div>
+        <div class="form-row" id="custom-pages-row" style="display: none;">
+          <label class="form-label"></label>
+          <input type="number" class="input-box" id="custom-pages" placeholder="예: 120 (직접 입력 선택 시)" />
+        </div>
+        <div class="form-row">
+          <label class="form-label">저장 경로</label>
+          <input type="text" class="input-box" id="save-path" placeholder="/Users/.../reviews" />
+          <button class="button secondary" id="select-path">선택</button>
+        </div>
+        <div class="form-row">
+          <div class="checkbox-group">
+            <div class="checkbox checked" id="open-folder"></div>
+            <label for="open-folder" style="cursor: pointer; font-size: 12px; font-weight: 650; color: #aeb7ca;">크롤링 후 폴더 열기</label>
+          </div>
+        </div>
+      </div>
+      <div class="card">
+        <button class="button primary big-button" id="start-btn">▶ 수집 시작</button>
+        <div class="stats-box">
+          <div class="status-row">
+            <span class="status-label">예상</span>
+            <span class="status-value" id="expected-info">페이지 5 · 정렬 랭킹순 · 플랫폼 네이버</span>
+          </div>
+          <div class="status-row">
+            <span class="status-label">출력</span>
+            <span class="status-value">CSV / JSON (선택 가능)</span>
+          </div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="log-box" id="log-box">
+          <div class="log-line waiting">[대기] 상품 URL 입력을 기다리는 중…</div>
+          <div class="log-line">[정보] 플랫폼: 네이버</div>
+          <div class="log-line">[정보] 정렬: 랭킹순</div>
+          <div class="log-line">[정보] 페이지: 5</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  
+  <!-- 커스텀 모달 -->
+  <div id="custom-modal" class="custom-modal" style="display: none;">
+    <div class="modal-content">
+      <div class="modal-message" id="modal-message"></div>
+      <button class="modal-button" id="modal-ok">확인</button>
+    </div>
+  </div>
+  
+  <script src="renderer.js"></script>
+</body>
+</html>

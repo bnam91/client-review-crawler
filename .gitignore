@@ -1,0 +1,15 @@
+node_modules/
+.DS_Store
+*.log
+.env
+dist/
+out/
+build/
+*.app
+*.dmg
+*.exe
+*.deb
+*.rpm
+*.snap
+*.AppImage
+*.zip
