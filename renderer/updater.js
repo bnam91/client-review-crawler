@@ -20,7 +20,22 @@ if (window.electronAPI && window.electronAPI.onUpdateStatus) {
         
       case 'update-available':
         title.textContent = '새로운 업데이트 발견!';
-        message.textContent = `버전 ${data.version}이 사용 가능합니다.`;
+        if (data.isDevMode) {
+          message.textContent = `버전 ${data.version}이 사용 가능합니다. (개발 모드에서는 수동 다운로드 필요)`;
+          // 개발 모드에서는 릴리즈 페이지로 이동하는 버튼 표시
+          if (data.releaseUrl) {
+            const actions = document.getElementById('update-actions');
+            if (actions) {
+              actions.innerHTML = `
+                <button id="update-download-btn" onclick="window.openReleasePage('${data.releaseUrl}')">릴리즈 페이지 열기</button>
+                <button id="update-later-btn" onclick="window.hideUpdateNotification()">나중에</button>
+              `;
+              actions.style.display = 'block';
+            }
+          }
+        } else {
+          message.textContent = `버전 ${data.version}이 사용 가능합니다.`;
+        }
         break;
         
       case 'update-not-available':
@@ -72,7 +87,17 @@ function hideUpdateNotification() {
   }
 }
 
+// 릴리즈 페이지 열기
+function openReleasePage(url) {
+  if (window.electronAPI && window.electronAPI.openUrlInBrowser) {
+    window.electronAPI.openUrlInBrowser(url);
+  } else {
+    window.open(url, '_blank');
+  }
+}
+
 // 전역 함수로 등록
 window.installUpdate = installUpdate;
 window.hideUpdateNotification = hideUpdateNotification;
+window.openReleasePage = openReleasePage;
 

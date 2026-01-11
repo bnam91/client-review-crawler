@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>리뷰수집기</title>
+  <title>review-crawler</title>
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -22,18 +22,21 @@
       <div class="user-info-content">
         <div class="user-name" id="user-name">user: -</div>
         <div class="user-ip" id="user-ip">ip: 로딩 중...</div>
+        <button class="update-check-btn" id="update-check-btn" title="업데이트 확인">🔄</button>
       </div>
     </div>
     
     <div class="cards-container">
       <div class="card">
         <div class="form-row">
-          <label class="form-label">상품 링크</label>
+          <button class="platform-toggle-btn" id="platform-toggle-btn">
+            <span class="platform-name" id="platform-name">네이버</span>
+          </button>
           <input 
             type="url" 
             id="product-url" 
             class="input-box" 
-            placeholder="상품링크를 입력하세요"
+            placeholder="상품 링크 혹은 검색어를 입력하세요"
           />
         </div>
         <div class="status-box" style="display: none;">
@@ -47,7 +50,7 @@
           <select class="dropdown-select" id="collection-type-select">
             <option value="0">리뷰 수집</option>
             <option value="1">Q&A 수집</option>
-            <option value="2">리뷰 + Q&A 수집</option>
+            <!-- <option value="2">리뷰 + Q&A 수집</option> -->
           </select>
           <select class="dropdown-select" id="sort-select">
             <option value="0">랭킹순</option>

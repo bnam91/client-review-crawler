@@ -1,0 +1,43 @@
+/* Platform Toggle Button Styles */
+.platform-toggle-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(3, 199, 90, 0.1);
+  border: 1px solid rgba(3, 199, 90, 0.3);
+  border-radius: 8px;
+  padding: 8px 16px;
+  color: #03c75a;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+  transition: all 0.2s;
+  min-width: 80px;
+}
+
+.platform-toggle-btn:hover {
+  background: rgba(3, 199, 90, 0.2);
+  border-color: rgba(3, 199, 90, 0.5);
+  transform: translateY(-1px);
+}
+
+.platform-toggle-btn:active {
+  transform: translateY(0);
+}
+
+.platform-name {
+  font-weight: 800;
+}
+
+/* 쿠팡일 때 스타일 변경 */
+.platform-toggle-btn.coupang {
+  background: rgba(255, 69, 0, 0.1);
+  border-color: rgba(255, 69, 0, 0.3);
+  color: #ff4500;
+}
+
+.platform-toggle-btn.coupang:hover {
+  background: rgba(255, 69, 0, 0.2);
+  border-color: rgba(255, 69, 0, 0.5);
+}
+

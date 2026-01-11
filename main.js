@@ -8,6 +8,7 @@ import log from 'electron-log';
 
 const { autoUpdater } = updater;
 import { readFileSync } from 'fs';
+import https from 'https';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -52,13 +53,34 @@ if (packageJson.build && packageJson.build.publish) {
       owner: owner,
       repo: repo
     });
+    
+    // 개발 모드에서도 업데이트 체크 가능하도록 설정
+    if (isDev || process.argv.includes('--dev') || !app.isPackaged) {
+      // 개발 모드에서 강제로 체크 가능하도록 설정
+      autoUpdater.forceDevUpdateConfig = true;
+      // 업데이트 체크를 강제로 활성화
+      autoUpdater.allowPrerelease = false;
+      // 개발 모드에서도 체크 가능하도록 업데이트 설정 경로 명시
+      try {
+        autoUpdater.updateConfigPath = join(__dirname, 'dev-app-update.yml');
+      } catch (e) {
+        // 설정 실패해도 계속 진행
+      }
+    }
   }
 } else {
   console.log('⚠️  GitHub 릴리즈 설정이 없습니다. package.json의 build.publish를 확인하세요.\n');
 }
 
-// 개발 환경 및 macOS에서는 업데이트 체크 비활성화
-if (isDev || process.argv.includes('--dev') || process.platform === 'darwin') {
+// 개발 환경에서는 자동 다운로드 비활성화
+// macOS에서는 자동 다운로드만 비활성화 (체크는 가능)
+if (isDev || process.argv.includes('--dev')) {
+  autoUpdater.autoDownload = false;
+  autoUpdater.autoInstallOnAppQuit = false;
+  // 개발 모드에서도 업데이트 체크 가능하도록 설정
+  autoUpdater.forceDevUpdateConfig = true;
+} else if (process.platform === 'darwin') {
+  // macOS에서는 자동 다운로드 비활성화 (수동 다운로드는 가능)
   autoUpdater.autoDownload = false;
   autoUpdater.autoInstallOnAppQuit = false;
 }
@@ -69,7 +91,7 @@ function createWindow() {
     height: 900,
     minWidth: 480,
     // maxWidth: 450,
-    title: 'Electron Review Crawler',
+    title: 'review-crawler',
     webPreferences: {
       preload: join(__dirname, 'preload.mjs'),
       contextIsolation: true,
@@ -87,28 +109,11 @@ function createWindow() {
     mainWindow.loadFile(join(__dirname, 'renderer/index.html'));
 
   // 업데이트 체크 (앱 시작 후 3초 뒤)
-  // 개발 모드에서는 강제로 체크 가능 (테스트용)
-  const shouldCheckUpdates = !isDev && !process.argv.includes('--dev') && process.platform !== 'darwin';
-  const forceCheckInDev = isDev && process.argv.includes('--force-update-check');
-  
-  if (shouldCheckUpdates || forceCheckInDev) {
-    if (forceCheckInDev) {
-      console.log('🧪 개발 모드: 강제 업데이트 체크 모드 (--force-update-check)\n');
-    } else {
-      console.log('⏳ 3초 후 자동 업데이트 체크를 시작합니다...\n');
-    }
-    setTimeout(() => {
-      checkForUpdates();
-    }, 3000);
-  } else {
-    if (isDev || process.argv.includes('--dev')) {
-      console.log('ℹ️  개발 모드에서는 자동 업데이트 체크가 비활성화되어 있습니다.');
-      console.log('   테스트하려면: npm start -- --force-update-check\n');
-    } else if (process.platform === 'darwin') {
-      console.log('ℹ️  macOS에서는 자동 업데이트가 지원되지 않습니다.');
-      console.log('   테스트하려면: npm start -- --force-update-check\n');
-    }
-  }
+  // 개발 모드에서도 강제로 체크 가능하도록 설정됨
+  console.log('⏳ 3초 후 자동 업데이트 체크를 시작합니다...\n');
+  setTimeout(() => {
+    checkForUpdates();
+  }, 3000);
 
   mainWindow.on('closed', () => {
     // 개발 모드 정리
@@ -152,11 +157,11 @@ app.whenReady().then(() => {
     }
   });
 
-  // 브라우저에서 URL 열기 핸들러
-  ipcMain.handle('open-url-in-browser', async (event, url) => {
-    console.log('[Main] open-url-in-browser IPC handler called with URL:', url);
+  // 브라우저에서 URL 열기 핸들러 (플랫폼 정보 및 수집 타입 포함)
+  ipcMain.handle('open-url-in-browser', async (event, url, platform = 0, collectionType = 0) => {
+    console.log('[Main] open-url-in-browser IPC handler called with URL:', url, 'Platform:', platform, 'CollectionType:', collectionType);
     try {
-      const result = await openUrlInBrowser(url);
+      const result = await openUrlInBrowser(url, platform, collectionType);
       console.log('[Main] Browser service result:', result);
       return result;
     } catch (error) {
@@ -169,20 +174,10 @@ app.whenReady().then(() => {
   });
 
   // 업데이트 관련 IPC 핸들러
-  // 수동 업데이트 체크 (개발 모드에서는 강제로 가능)
+  // 수동 업데이트 체크 (모든 플랫폼에서 가능)
   ipcMain.on('check-for-updates', () => {
-    const canCheck = process.platform !== 'darwin' && !isDev;
-    const forceCheck = isDev || process.argv.includes('--force-update-check');
-    
-    if (canCheck || forceCheck) {
-      if (forceCheck) {
-        console.log('🧪 수동 업데이트 체크 요청 (강제 모드)\n');
-      }
-      checkForUpdates();
-    } else {
-      console.log('⚠️  macOS에서는 자동 업데이트가 지원되지 않습니다.');
-      console.log('   테스트하려면: npm start -- --force-update-check\n');
-    }
+    console.log('🔍 수동 업데이트 체크 요청\n');
+    checkForUpdates();
   });
 
   // 업데이트 설치 및 재시작
@@ -205,8 +200,36 @@ app.on('window-all-closed', () => {
   }
 });
 
+// 개발 모드에서 GitHub API로 직접 버전 확인 (fallback)
+async function checkVersionViaAPI(owner, repo) {
+  return new Promise((resolve, reject) => {
+    const url = `https://api.github.com/repos/${owner}/${repo}/releases/latest`;
+    https.get(url, {
+      headers: {
+        'User-Agent': 'review-crawler',
+        'Accept': 'application/vnd.github.v3+json'
+      }
+    }, (res) => {
+      let data = '';
+      res.on('data', (chunk) => { data += chunk; });
+      res.on('end', () => {
+        try {
+          const release = JSON.parse(data);
+          resolve({
+            tag_name: release.tag_name,
+            html_url: release.html_url,
+            assets: release.assets || []
+          });
+        } catch (e) {
+          reject(e);
+        }
+      });
+    }).on('error', reject);
+  });
+}
+
 // 업데이트 체크 함수
-function checkForUpdates() {
+async function checkForUpdates() {
   // GitHub 설정 확인
   if (!packageJson.build || !packageJson.build.publish) {
     console.log('❌ 업데이트 체크 실패: GitHub 릴리즈 설정이 없습니다.\n');
@@ -223,7 +246,61 @@ function checkForUpdates() {
   console.log('🔍 업데이트 확인 중...');
   console.log(`   현재 버전: ${packageJson.version}`);
   console.log(`   GitHub: ${owner}/${repo}`);
-  autoUpdater.checkForUpdates();
+  
+  // 개발 모드이고 패키징되지 않은 경우, GitHub API로 직접 확인
+  if ((isDev || !app.isPackaged) && process.env.USE_API_CHECK !== 'false') {
+    try {
+      console.log('   (개발 모드: GitHub API로 직접 확인)\n');
+      const releaseInfo = await checkVersionViaAPI(owner, repo);
+      const currentVersion = `v${packageJson.version}`;
+      const latestTag = releaseInfo.tag_name;
+      
+      if (latestTag && latestTag !== currentVersion) {
+        console.log('\n✨ ========================================');
+        console.log('   새로운 업데이트 발견!');
+        console.log('========================================');
+        console.log(`   현재 버전: ${currentVersion}`);
+        console.log(`   최신 버전: ${latestTag}`);
+        console.log(`   릴리즈 페이지: ${releaseInfo.html_url}`);
+        console.log('========================================');
+        console.log('   ⚠️  개발 모드에서는 자동 업데이트가 불가능합니다.');
+        console.log('   릴리즈 페이지에서 수동으로 다운로드하세요.\n');
+        
+        if (mainWindow) {
+          mainWindow.webContents.send('update-status', {
+            status: 'update-available',
+            data: { 
+              version: latestTag,
+              releaseUrl: releaseInfo.html_url,
+              isDevMode: true
+            }
+          });
+        }
+      } else {
+        console.log('\n✅ ========================================');
+        console.log('   최신 버전입니다!');
+        console.log('========================================');
+        console.log(`   현재 버전: ${currentVersion}`);
+        console.log(`   최신 버전: ${latestTag || currentVersion}`);
+        console.log('========================================\n');
+        
+        if (mainWindow) {
+          mainWindow.webContents.send('update-status', {
+            status: 'update-not-available',
+            data: { version: latestTag || currentVersion }
+          });
+        }
+      }
+    } catch (error) {
+      console.log(`\n⚠️  GitHub API 확인 실패: ${error.message}`);
+      console.log('   electron-updater로 재시도합니다...\n');
+      // API 실패 시 electron-updater로 재시도
+      autoUpdater.checkForUpdates();
+    }
+  } else {
+    // 프로덕션 모드 또는 패키징된 앱에서는 electron-updater 사용
+    autoUpdater.checkForUpdates();
+  }
 }
 
 // 업데이트 이벤트 핸들러

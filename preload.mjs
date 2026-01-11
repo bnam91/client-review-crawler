@@ -26,11 +26,11 @@ try {
       }
     },
     
-    // 브라우저에서 URL 열기
-    openUrlInBrowser: async (url) => {
-      console.log('[Preload] openUrlInBrowser called with URL:', url);
+    // 브라우저에서 URL 열기 (플랫폼 정보 및 수집 타입 포함)
+    openUrlInBrowser: async (url, platform = 0, collectionType = 0) => {
+      console.log('[Preload] openUrlInBrowser called with URL:', url, 'Platform:', platform, 'CollectionType:', collectionType);
       try {
-        const result = await ipcRenderer.invoke('open-url-in-browser', url);
+        const result = await ipcRenderer.invoke('open-url-in-browser', url, platform, collectionType);
         console.log('[Preload] openUrlInBrowser result:', result);
         return result;
       } catch (error) {

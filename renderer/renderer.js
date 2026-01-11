@@ -18,6 +18,34 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
+  // 플랫폼 토글 버튼
+  const platformToggleBtn = document.getElementById('platform-toggle-btn');
+  const platformNameElement = document.getElementById('platform-name');
+  
+  if (platformToggleBtn && platformNameElement) {
+    // 초기 플랫폼 설정 (네이버)
+    const platformNames = ['네이버', '쿠팡'];
+    platformNameElement.textContent = platformNames[state.platform];
+    
+    platformToggleBtn.addEventListener('click', () => {
+      // 네이버(0) ↔ 쿠팡(1) 전환
+      state.platform = state.platform === 0 ? 1 : 0;
+      platformNameElement.textContent = platformNames[state.platform];
+      
+      // 쿠팡일 때 버튼 스타일 변경
+      if (state.platform === 1) {
+        platformToggleBtn.classList.add('coupang');
+      } else {
+        platformToggleBtn.classList.remove('coupang');
+      }
+      
+      // 로그 및 상태 업데이트
+      addLog(`[변경] 플랫폼이 ${platformNames[state.platform]}로 변경되었습니다.`);
+      updateLog();
+      updateExpected();
+    });
+  }
+
   // URL 입력 감지 및 플랫폼 자동 인식
   const productUrlInput = document.getElementById('product-url');
   const statusElement = document.getElementById('status');
@@ -54,6 +82,18 @@ document.addEventListener('DOMContentLoaded', () => {
         if (detectedPlatform !== null) {
           // 플랫폼 자동 감지
           state.platform = detectedPlatform;
+          const platformNames = ['네이버', '쿠팡'];
+          
+          // 플랫폼 버튼 텍스트 및 스타일 업데이트
+          if (platformNameElement && platformToggleBtn) {
+            platformNameElement.textContent = platformNames[detectedPlatform];
+            if (detectedPlatform === 1) {
+              platformToggleBtn.classList.add('coupang');
+            } else {
+              platformToggleBtn.classList.remove('coupang');
+            }
+          }
+          
           if (detectedPlatform === 0) {
             // 네이버
             statusElement.textContent = '네이버 상품 감지됨';
@@ -132,6 +172,14 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
+  // 업데이트 체크 버튼
+  const updateCheckBtn = document.getElementById('update-check-btn');
+  if (updateCheckBtn && window.electronAPI && window.electronAPI.checkForUpdates) {
+    updateCheckBtn.addEventListener('click', () => {
+      console.log('[Renderer] 업데이트 체크 버튼 클릭');
+      window.electronAPI.checkForUpdates();
+    });
+  }
 
   // 저장 경로 선택 버튼
   const selectPathBtn = document.getElementById('select-path');
@@ -197,12 +245,12 @@ document.addEventListener('DOMContentLoaded', () => {
       startBtn.disabled = true;
       startBtn.textContent = '수집 중...';
       
-      // 브라우저에서 URL 열기
+      // 브라우저에서 URL 열기 (플랫폼 정보 포함)
       if (window.electronAPI && window.electronAPI.openUrlInBrowser) {
         try {
           addLog(`[브라우저] ${url}를 브라우저에서 엽니다...`);
           showStatusMessage('브라우저를 열고 있습니다...', 'info');
-          const result = await window.electronAPI.openUrlInBrowser(url);
+          const result = await window.electronAPI.openUrlInBrowser(url, state.platform, state.collectionType);
           if (result.success) {
             addLog(`[브라우저] 브라우저에서 URL을 열었습니다.`);
             showStatusMessage('브라우저에서 URL을 열었습니다.', 'success');

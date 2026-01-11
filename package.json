@@ -1,7 +1,7 @@
 {
-  "name": "electron-app-template",
+  "name": "client-review-crawler",
   "version": "0.0.0",
-  "description": "Electron 앱 템플릿",
+  "description": "Naver and Coupang product review crawler",
   "type": "module",
   "main": "main.js",
   "scripts": {
@@ -11,15 +11,18 @@
     "build:mac": "electron-builder --mac",
     "build:win": "electron-builder --win",
     "build:linux": "electron-builder --linux",
-    "build:all": "electron-builder --mac --win --linux"
+    "build:all": "electron-builder --mac --win --linux",
+    "release:mac": "electron-builder --mac --publish=always",
+    "release:win": "electron-builder --win --publish=always",
+    "release:linux": "electron-builder --linux --publish=always",
+    "release:all": "electron-builder --mac --win --linux --publish=always"
   },
-  "keywords": [
-    "electron",
-    "desktop",
-    "app"
-  ],
-  "author": "",
+  "author": "bnam91",
   "license": "ISC",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/bnam91/client-review-crawler.git"
+  },
   "dependencies": {
     "electron": "^28.0.0",
     "electron-log": "^5.4.3",
@@ -30,8 +33,9 @@
     "electron-builder": "^24.9.1"
   },
   "build": {
-    "appId": "com.example.electron-app",
-    "productName": "리뷰수집기",
+    "appId": "com.bnam91.client-review-crawler",
+    "productName": "review-crawler",
+    "copyright": "© 2026 bnam91. All rights reserved.",
     "directories": {
       "output": "dist",
       "buildResources": "build"
