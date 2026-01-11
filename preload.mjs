@@ -27,10 +27,10 @@ try {
     },
     
     // 브라우저에서 URL 열기 (플랫폼 정보 및 수집 타입 포함)
-    openUrlInBrowser: async (url, platform = 0, collectionType = 0) => {
-      console.log('[Preload] openUrlInBrowser called with URL:', url, 'Platform:', platform, 'CollectionType:', collectionType);
+    openUrlInBrowser: async (url, platform = 0, collectionType = 0, sort = 0) => {
+      console.log('[Preload] openUrlInBrowser called with URL:', url, 'Platform:', platform, 'CollectionType:', collectionType, 'Sort:', sort);
       try {
-        const result = await ipcRenderer.invoke('open-url-in-browser', url, platform, collectionType);
+        const result = await ipcRenderer.invoke('open-url-in-browser', url, platform, collectionType, sort);
         console.log('[Preload] openUrlInBrowser result:', result);
         return result;
       } catch (error) {

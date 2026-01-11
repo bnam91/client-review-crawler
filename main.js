@@ -158,10 +158,10 @@ app.whenReady().then(() => {
   });
 
   // 브라우저에서 URL 열기 핸들러 (플랫폼 정보 및 수집 타입 포함)
-  ipcMain.handle('open-url-in-browser', async (event, url, platform = 0, collectionType = 0) => {
-    console.log('[Main] open-url-in-browser IPC handler called with URL:', url, 'Platform:', platform, 'CollectionType:', collectionType);
+  ipcMain.handle('open-url-in-browser', async (event, url, platform = 0, collectionType = 0, sort = 0) => {
+    console.log('[Main] open-url-in-browser IPC handler called with URL:', url, 'Platform:', platform, 'CollectionType:', collectionType, 'Sort:', sort);
     try {
-      const result = await openUrlInBrowser(url, platform, collectionType);
+      const result = await openUrlInBrowser(url, platform, collectionType, sort);
       console.log('[Main] Browser service result:', result);
       return result;
     } catch (error) {

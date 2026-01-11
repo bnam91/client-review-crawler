@@ -5,6 +5,11 @@
   gap: 10px;
 }
 
+/* 정렬 드롭다운과 동일한 너비 유지 */
+#exclude-secret-group {
+  width: 190px;
+}
+
 .checkbox {
   width: 18px;
   height: 18px;

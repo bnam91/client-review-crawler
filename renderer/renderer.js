@@ -10,11 +10,52 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // 수집 타입 드롭다운
   const collectionTypeSelect = document.getElementById('collection-type-select');
+  const sortSelect = document.getElementById('sort-select');
+  const excludeSecretGroup = document.getElementById('exclude-secret-group');
+  const excludeSecretCheckbox = document.getElementById('exclude-secret');
+  
   if (collectionTypeSelect) {
     collectionTypeSelect.addEventListener('change', (e) => {
       state.collectionType = parseInt(e.target.value);
+      
+      // Q&A 수집 시 정렬 드롭다운 숨기고 비밀 글 제외 체크박스 표시
+      if (state.collectionType === 1) {
+        // Q&A 수집
+        if (sortSelect) {
+          sortSelect.style.display = 'none';
+        }
+        if (excludeSecretGroup) {
+          excludeSecretGroup.style.display = 'flex';
+        }
+      } else {
+        // 리뷰 수집
+        if (sortSelect) {
+          sortSelect.style.display = 'block';
+        }
+        if (excludeSecretGroup) {
+          excludeSecretGroup.style.display = 'none';
+        }
+      }
+      
       updateLog();
       updateExpected();
+    });
+  }
+  
+  // 비밀글 제외 체크박스
+  const excludeSecretLabel = document.getElementById('exclude-secret-label');
+  if (excludeSecretCheckbox) {
+    excludeSecretCheckbox.addEventListener('click', () => {
+      excludeSecretCheckbox.classList.toggle('checked');
+    });
+  }
+  
+  // 라벨 클릭 시 체크박스 토글
+  if (excludeSecretLabel) {
+    excludeSecretLabel.addEventListener('click', () => {
+      if (excludeSecretCheckbox) {
+        excludeSecretCheckbox.classList.toggle('checked');
+      }
     });
   }
 
@@ -154,8 +195,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 
-  // 정렬 드롭다운
-  const sortSelect = document.getElementById('sort-select');
+  // 정렬 드롭다운 (이미 위에서 선언됨)
   if (sortSelect) {
     sortSelect.addEventListener('change', (e) => {
       state.sort = parseInt(e.target.value);
@@ -250,7 +290,7 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
           addLog(`[브라우저] ${url}를 브라우저에서 엽니다...`);
           showStatusMessage('브라우저를 열고 있습니다...', 'info');
-          const result = await window.electronAPI.openUrlInBrowser(url, state.platform, state.collectionType);
+          const result = await window.electronAPI.openUrlInBrowser(url, state.platform, state.collectionType, state.sort);
           if (result.success) {
             addLog(`[브라우저] 브라우저에서 URL을 열었습니다.`);
             showStatusMessage('브라우저에서 URL을 열었습니다.', 'success');
@@ -423,6 +463,16 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
+  // 초기화: Q&A 수집이 선택되어 있으면 정렬 드롭다운 숨기고 체크박스 표시
+  if (state.collectionType === 1) {
+    if (sortSelect) {
+      sortSelect.style.display = 'none';
+    }
+    if (excludeSecretGroup) {
+      excludeSecretGroup.style.display = 'flex';
+    }
+  }
+  
   // 초기화
   updateExpected();
   updateLog();

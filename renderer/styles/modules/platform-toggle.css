@@ -6,13 +6,13 @@
   background: rgba(3, 199, 90, 0.1);
   border: 1px solid rgba(3, 199, 90, 0.3);
   border-radius: 8px;
-  padding: 8px 16px;
+  padding: 8px 12px;
   color: #03c75a;
   font-size: 12px;
   font-weight: 800;
   cursor: pointer;
   transition: all 0.2s;
-  min-width: 80px;
+  min-width: 70px;
 }
 
 .platform-toggle-btn:hover {

@@ -101,8 +101,9 @@ function isUrl(input) {
  * @param {string} input - URL 또는 검색어
  * @param {number} platform - 0: 네이버, 1: 쿠팡
  * @param {number} collectionType - 0: 리뷰 수집, 1: Q&A 수집
+ * @param {number} sort - 0: 랭킹순, 1: 최신순, 2: 평점낮은순
  */
-export async function openUrlInBrowser(input, platform = 0, collectionType = 0) {
+export async function openUrlInBrowser(input, platform = 0, collectionType = 0, sort = 0) {
   let browser = null;
   
   try {
@@ -117,6 +118,7 @@ export async function openUrlInBrowser(input, platform = 0, collectionType = 0) 
     console.log('[BrowserService] Input:', input);
     console.log('[BrowserService] Platform:', platform === 0 ? '네이버' : '쿠팡');
     console.log('[BrowserService] CollectionType:', collectionType === 0 ? '리뷰 수집' : 'Q&A 수집');
+    console.log('[BrowserService] Sort:', sort === 0 ? '랭킹순' : sort === 1 ? '최신순' : '평점낮은순');
     
     // puppeteer-core로 브라우저 실행
     browser = await puppeteer.launch({
@@ -234,7 +236,7 @@ export async function openUrlInBrowser(input, platform = 0, collectionType = 0) 
       return await handleCoupang(browser, page, input, inputIsUrl);
     } else {
       // 네이버 플랫폼 처리 (기본값)
-      return await handleNaver(browser, page, input, inputIsUrl, collectionType);
+      return await handleNaver(browser, page, input, inputIsUrl, collectionType, sort);
     }
   } catch (error) {
     console.error('[BrowserService] Error:', error);
