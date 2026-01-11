@@ -157,7 +157,7 @@ app.whenReady().then(() => {
     }
   });
 
-  // 브라우저에서 URL 열기 핸들러 (플랫폼 정보 및 수집 타입 포함)
+  // 브라우저에서 URL 열기 핸들러 (플랫폼/수집타입/정렬 포함)
   ipcMain.handle('open-url-in-browser', async (event, url, platform = 0, collectionType = 0, sort = 0) => {
     console.log('[Main] open-url-in-browser IPC handler called with URL:', url, 'Platform:', platform, 'CollectionType:', collectionType, 'Sort:', sort);
     try {

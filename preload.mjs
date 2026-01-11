@@ -26,7 +26,7 @@ try {
       }
     },
     
-    // 브라우저에서 URL 열기 (플랫폼 정보 및 수집 타입 포함)
+    // 브라우저에서 URL 열기 (플랫폼/수집타입/정렬 정보 포함)
     openUrlInBrowser: async (url, platform = 0, collectionType = 0, sort = 0) => {
       console.log('[Preload] openUrlInBrowser called with URL:', url, 'Platform:', platform, 'CollectionType:', collectionType, 'Sort:', sort);
       try {

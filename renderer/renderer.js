@@ -16,7 +16,12 @@ document.addEventListener('DOMContentLoaded', () => {
   
   if (collectionTypeSelect) {
     collectionTypeSelect.addEventListener('change', (e) => {
-      state.collectionType = parseInt(e.target.value);
+      const newCollectionType = parseInt(e.target.value);
+      state.collectionType = newCollectionType;
+      const collectionTypeNames = ['리뷰 수집', 'Q&A 수집'];
+      
+      // 즉시 콘솔 로그 출력
+      console.log(`[Renderer] 🎯 항목 및 순서 변경: ${collectionTypeNames[newCollectionType]} (값: ${newCollectionType})`);
       
       // Q&A 수집 시 정렬 드롭다운 숨기고 비밀 글 제외 체크박스 표시
       if (state.collectionType === 1) {
@@ -80,8 +85,10 @@ document.addEventListener('DOMContentLoaded', () => {
         platformToggleBtn.classList.remove('coupang');
       }
       
+      // 즉시 콘솔 로그 출력
+      console.log(`[Renderer] 🎯 플랫폼 변경: ${platformNames[state.platform]} (값: ${state.platform})`);
+      
       // 로그 및 상태 업데이트
-      addLog(`[변경] 플랫폼이 ${platformNames[state.platform]}로 변경되었습니다.`);
       updateLog();
       updateExpected();
     });
@@ -171,6 +178,11 @@ document.addEventListener('DOMContentLoaded', () => {
       btn.classList.add('active');
       
       state.pages = parseInt(btn.dataset.pages);
+      const pageNames = ['5페이지', '15페이지', '50페이지', '최대', '직접입력'];
+      
+      // 즉시 콘솔 로그 출력
+      console.log(`[Renderer] 🎯 페이지 변경: ${pageNames[state.pages]} (값: ${state.pages})`);
+      
       if (state.pages === 4) {
         // 직접 입력 선택 시 필드 표시
         if (customPagesRow) {
@@ -198,7 +210,13 @@ document.addEventListener('DOMContentLoaded', () => {
   // 정렬 드롭다운 (이미 위에서 선언됨)
   if (sortSelect) {
     sortSelect.addEventListener('change', (e) => {
-      state.sort = parseInt(e.target.value);
+      const newSort = parseInt(e.target.value);
+      state.sort = newSort;
+      const sortNames = ['랭킹순', '최신순', '평점낮은순'];
+      
+      // 즉시 콘솔 로그 출력
+      console.log(`[Renderer] 🎯 정렬 변경: ${sortNames[newSort]} (값: ${newSort})`);
+      
       updateLog();
       updateExpected();
     });
@@ -276,7 +294,7 @@ document.addEventListener('DOMContentLoaded', () => {
     startBtn.addEventListener('click', async () => {
       const url = document.getElementById('product-url').value.trim();
       if (!url) {
-        showModal('상품 URL을 입력해주세요.');
+        showModal('상품 URL 혹은 검색어를 입력하세요.');
         return;
       }
       
@@ -288,6 +306,19 @@ document.addEventListener('DOMContentLoaded', () => {
       // 브라우저에서 URL 열기 (플랫폼 정보 포함)
       if (window.electronAPI && window.electronAPI.openUrlInBrowser) {
         try {
+          const platformNames = ['네이버', '쿠팡'];
+          const collectionTypeNames = ['리뷰 수집', 'Q&A 수집'];
+          const sortNames = ['랭킹순', '최신순', '평점낮은순'];
+          const pageNames = ['5페이지', '15페이지', '50페이지', '최대', '직접입력'];
+          
+          // 현재 state 값 전체 출력
+          console.log('[Renderer] 🚀 브라우저 열기 버튼 클릭 - 현재 설정:');
+          console.log(`  - 플랫폼: ${platformNames[state.platform]} (값: ${state.platform})`);
+          console.log(`  - 항목 및 순서: ${collectionTypeNames[state.collectionType]} (값: ${state.collectionType})`);
+          console.log(`  - 정렬: ${sortNames[state.sort]} (값: ${state.sort})`);
+          console.log(`  - 페이지: ${pageNames[state.pages]} (값: ${state.pages})`);
+          console.log(`  - URL: ${url}`);
+          
           addLog(`[브라우저] ${url}를 브라우저에서 엽니다...`);
           showStatusMessage('브라우저를 열고 있습니다...', 'info');
           const result = await window.electronAPI.openUrlInBrowser(url, state.platform, state.collectionType, state.sort);
@@ -316,7 +347,7 @@ document.addEventListener('DOMContentLoaded', () => {
         addLog('[완료] 리뷰 수집이 완료되었습니다.');
         showStatusMessage('리뷰 수집이 완료되었습니다.', 'success');
         startBtn.disabled = false;
-        startBtn.textContent = '▶ 수집 시작';
+        startBtn.textContent = '수집 시작하기';
       }, 2000);
     });
   }
@@ -463,6 +494,13 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
+  // 초기화: sort 드롭다운의 현재 값을 state에 반영
+  if (sortSelect) {
+    state.sort = parseInt(sortSelect.value) || 0;
+    const sortNames = ['랭킹순', '최신순', '평점낮은순'];
+    console.log('[Renderer] 초기 sort 값:', state.sort, `(${sortNames[state.sort]})`);
+  }
+  
   // 초기화: Q&A 수집이 선택되어 있으면 정렬 드롭다운 숨기고 체크박스 표시
   if (state.collectionType === 1) {
     if (sortSelect) {

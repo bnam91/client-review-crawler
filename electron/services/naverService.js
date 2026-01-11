@@ -4,6 +4,8 @@
 import { verifyNaverProductPageLoaded, waitForProductPageToLoad } from '../../src/utils/naver/productPageUtil.js';
 import { navigateToNaver, createNaverSearchUrl, isNaverProductPage, waitForNaverProductPage } from './naver/naverNavigation.js';
 import { clickReviewOrQnATab } from './naver/naverTabActions.js';
+import { extractAllReviews } from './naver/naverReviewExtractor.js';
+import { navigateToNextPage, hasNextPage } from './naver/naverPagination.js';
 
 /**
  * 네이버 플랫폼 처리 메인 함수
@@ -64,7 +66,20 @@ export async function handleNaver(browser, page, input, isUrl, collectionType = 
         console.log('[NaverService] ✅ 상품 페이지 정상 로딩 확인 완료');
       }
       
+      const sortNames = ['랭킹순', '최신순', '평점낮은순'];
+      console.log(`[NaverService] clickReviewOrQnATab 호출 - collectionType: ${collectionType}, sort: ${sort} (${sortNames[sort] || '알 수 없음'})`);
       await clickReviewOrQnATab(newPage, collectionType, sort);
+      
+      // 리뷰 수집일 때 리뷰 추출
+      let reviews = [];
+      if (collectionType === 0) {
+        console.log('[NaverService] 리뷰 추출 시작...');
+        reviews = await extractAllReviews(newPage, '', 1);
+        console.log(`[NaverService] ✅ ${reviews.length}개의 리뷰를 추출했습니다.`);
+        if (reviews.length > 0) {
+          console.log('[NaverService] 추출된 리뷰 데이터:', JSON.stringify(reviews, null, 2));
+        }
+      }
       
       return {
         success: true,
@@ -73,6 +88,7 @@ export async function handleNaver(browser, page, input, isUrl, collectionType = 
         platform: '네이버',
         finalUrl: targetUrl,
         collectionType: collectionType,
+        reviews: reviews,
       };
     }
     
@@ -131,7 +147,20 @@ export async function handleNaver(browser, page, input, isUrl, collectionType = 
       }
       
       // 6. 리뷰 또는 Q&A 탭으로 이동
+      const sortNames = ['랭킹순', '최신순', '평점낮은순'];
+      console.log(`[NaverService] clickReviewOrQnATab 호출 - collectionType: ${collectionType}, sort: ${sort} (${sortNames[sort] || '알 수 없음'})`);
       await clickReviewOrQnATab(productPage, collectionType, sort);
+      
+      // 리뷰 수집일 때 리뷰 추출
+      let reviews = [];
+      if (collectionType === 0) {
+        console.log('[NaverService] 리뷰 추출 시작...');
+        reviews = await extractAllReviews(productPage, '', 1);
+        console.log(`[NaverService] ✅ ${reviews.length}개의 리뷰를 추출했습니다.`);
+        if (reviews.length > 0) {
+          console.log('[NaverService] 추출된 리뷰 데이터:', JSON.stringify(reviews, null, 2));
+        }
+      }
       
       return {
         success: true,
@@ -142,6 +171,7 @@ export async function handleNaver(browser, page, input, isUrl, collectionType = 
         searchUrl: targetUrl,
         productUrl: productUrl,
         collectionType: collectionType,
+        reviews: reviews,
       };
     } catch (error) {
       console.error('[NaverService] 상품 페이지 대기 중 오류:', error);
