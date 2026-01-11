@@ -269,33 +269,35 @@ async function determineReviewType(reviewElement) {
 }
 
 /**
- * 리뷰 이미지 추출
+ * 리뷰 이미지 추출 및 다운로드
  * @param {object} reviewElement - 리뷰 요소
  * @param {string} photoFolderPath - 이미지 저장 폴더 경로
  * @param {number} currentPage - 현재 페이지 번호
  * @param {number} reviewIndex - 리뷰 인덱스
- * @returns {Promise<Array<string>>} 이미지 URL 배열
+ * @returns {Promise<Array<string>>} 저장된 이미지 파일 경로 배열
  */
 async function extractReviewPhotos(reviewElement, photoFolderPath, currentPage, reviewIndex) {
+  console.log(`[NaverReviewExtractor]      📸 리뷰 이미지 추출 시작...`);
+  
   const photoSelectors = [
     'img.UpImHAUeYJ[alt="review_image"]',
+    'div.AlfkEF45qI img.UpImHAUeYJ[alt="review_image"]',
+    'div.s30AvhHfb0 img.UpImHAUeYJ[alt="review_image"]',
     'img[alt="review_image"]',
     'img[class*="review"]',
-    '.review-photo img',
-    'img[class*="photo"]'
+    '.review-photo img'
   ];
   
-  const photos = [];
+  let photoElements = [];
   
+  // 이미지 요소 찾기
+  console.log(`[NaverReviewExtractor]      🔍 이미지 요소를 찾는 중...`);
   for (const selector of photoSelectors) {
     try {
-      const imageUrls = await reviewElement.evaluate((el, sel) => {
-        const images = Array.from(el.querySelectorAll(sel));
-        return images.map(img => img.src || img.getAttribute('data-src') || '').filter(url => url.length > 0);
-      }, selector);
-      
-      if (imageUrls && imageUrls.length > 0) {
-        photos.push(...imageUrls);
+      const elements = await reviewElement.$$(selector);
+      if (elements && elements.length > 0) {
+        photoElements = elements;
+        console.log(`[NaverReviewExtractor]      ✅ 이미지 요소 ${elements.length}개 발견: ${selector}`);
         break;
       }
     } catch (e) {
@@ -303,7 +305,55 @@ async function extractReviewPhotos(reviewElement, photoFolderPath, currentPage, 
     }
   }
   
-  return photos;
+  if (photoElements.length === 0) {
+    console.log(`[NaverReviewExtractor]      ⚠️ 이미지 요소를 찾을 수 없습니다.`);
+    return [];
+  }
+  
+  // 이미지 URL 추출 및 다운로드
+  const savedPhotos = [];
+  const { downloadAndSaveReviewImage } = await import('../../../src/utils/naver/imageDownloader.js');
+  
+  for (let i = 0; i < photoElements.length; i++) {
+    try {
+      console.log(`[NaverReviewExtractor]        🖼️ 이미지 ${i + 1}/${photoElements.length} 처리 중...`);
+      
+      // data-src 속성을 우선적으로 사용 (원본 이미지)
+      console.log(`[NaverReviewExtractor]          🔗 이미지 URL 추출 중...`);
+      const photoUrl = await photoElements[i].evaluate((img) => {
+        return img.getAttribute('data-src') || img.src || '';
+      });
+      
+      if (!photoUrl) {
+        console.log(`[NaverReviewExtractor]          ⚠️ 이미지 URL을 찾을 수 없습니다.`);
+        continue;
+      }
+      
+      console.log(`[NaverReviewExtractor]          📝 원본 URL: ${photoUrl}`);
+      
+      // 이미지 다운로드 및 저장
+      const savedPath = await downloadAndSaveReviewImage(
+        photoUrl,
+        photoFolderPath,
+        currentPage,
+        reviewIndex,
+        i
+      );
+      
+      if (savedPath) {
+        savedPhotos.push(savedPath);
+        console.log(`[NaverReviewExtractor]          ✅ 이미지 ${i + 1} 처리 완료`);
+      } else {
+        console.log(`[NaverReviewExtractor]          ❌ 이미지 ${i + 1} 다운로드 실패`);
+      }
+    } catch (error) {
+      console.error(`[NaverReviewExtractor]          ❌ 이미지 ${i + 1} 다운로드 실패: ${error.message}`);
+      continue;
+    }
+  }
+  
+  console.log(`[NaverReviewExtractor]      📊 총 ${savedPhotos.length}개 이미지 추출 완료`);
+  return savedPhotos;
 }
 
 /**

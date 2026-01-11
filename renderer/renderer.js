@@ -393,12 +393,16 @@ document.addEventListener('DOMContentLoaded', () => {
           const openFolder = openFolderCheckbox && openFolderCheckbox.classList.contains('checked');
           console.log(`[Renderer] 폴더 열기 체크박스 상태: ${openFolder}`);
           
+          // 비밀글 제외 체크박스 상태 확인 (Q&A 수집일 때만)
+          const excludeSecret = excludeSecretCheckbox && excludeSecretCheckbox.classList.contains('checked');
+          console.log(`[Renderer] 비밀글 제외 체크박스 상태: ${excludeSecret}`);
+          
           console.log(`  - 저장 경로: ${savePath}`);
           addLog(`[경로] 저장 경로: ${savePath}`);
           
           addLog(`[브라우저] ${url}를 브라우저에서 엽니다...`);
           showStatusMessage('브라우저를 열고 있습니다...', 'info');
-          const result = await window.electronAPI.openUrlInBrowser(url, state.platform, state.collectionType, state.sort, state.pages, customPages, savePath, openFolder);
+          const result = await window.electronAPI.openUrlInBrowser(url, state.platform, state.collectionType, state.sort, state.pages, customPages, savePath, openFolder, excludeSecret);
           if (result.success) {
             addLog(`[브라우저] 브라우저에서 URL을 열었습니다.`);
             showStatusMessage('브라우저에서 URL을 열었습니다.', 'success');

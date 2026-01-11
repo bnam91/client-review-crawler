@@ -5,6 +5,7 @@ import { verifyNaverProductPageLoaded, waitForProductPageToLoad } from '../../sr
 import { navigateToNaver, createNaverSearchUrl, isNaverProductPage, waitForNaverProductPage } from './naver/naverNavigation.js';
 import { clickReviewOrQnATab } from './naver/naverTabActions.js';
 import { extractAllReviews } from './naver/naverReviewExtractor.js';
+import { extractAllQnAs } from './naver/naverQnAExtractor.js';
 import { navigateToNextPage, hasNextPage } from './naver/naverPagination.js';
 import { saveReviews, saveReviewsToExcelChunk } from '../../src/utils/naver/storage/index.js';
 import { getStorageDirectory } from '../../src/utils/naver/storage/common.js';
@@ -41,8 +42,9 @@ function getMaxPages(pages, customPages = null) {
  * @param {number} pages - 0: 5페이지, 1: 15페이지, 2: 50페이지, 3: 최대, 4: 직접입력
  * @param {number|null} customPages - 직접 입력한 페이지 수 (pages가 4일 때만 사용)
  * @param {string} savePath - 저장 경로 (선택)
+ * @param {boolean} excludeSecret - 비밀글 제외 여부 (Q&A 수집일 때만 사용)
  */
-export async function handleNaver(browser, page, input, isUrl, collectionType = 0, sort = 0, pages = 0, customPages = null, savePath = '') {
+export async function handleNaver(browser, page, input, isUrl, collectionType = 0, sort = 0, pages = 0, customPages = null, savePath = '', excludeSecret = false) {
   console.log(`[NaverService] 저장 경로: ${savePath || '(지정되지 않음)'}`);
   
   // 1. 먼저 네이버 메인 페이지로 이동
@@ -103,15 +105,48 @@ export async function handleNaver(browser, page, input, isUrl, collectionType = 
       let chunkReviews = []; // Excel 청크 저장용
       let chunkCount = 1; // 청크 번호 (1부터 시작)
       const CHUNK_SIZE = 50; // 50페이지마다 청크 저장
+      let finalSavePath = null; // 저장 경로 초기화
+      
+      // Q&A 수집일 때 Q&A 추출
+      if (collectionType === 1) {
+        console.log(`[NaverService] Q&A 추출 시작...`);
+        
+        // Q&A 추출
+        const allQnAs = await extractAllQnAs(newPage, excludeSecret);
+        
+        // Q&A 데이터 JSON 저장
+        if (allQnAs.length > 0) {
+          try {
+            console.log(`[NaverService] 📁 Q&A 데이터 저장 시작... (${allQnAs.length}개)`);
+            const savedPaths = await saveReviews(allQnAs, 'naver_qna', savePath);
+            if (savedPaths.length > 0) {
+              console.log(`[NaverService] 📁 Q&A 데이터 저장 완료: ${savedPaths.join(', ')}`);
+              finalSavePath = getStorageDirectory(savePath);
+            } else {
+              console.log(`[NaverService] ⚠️ 저장할 형식이 설정되지 않았습니다. config.js를 확인하세요.`);
+              finalSavePath = getStorageDirectory(savePath);
+            }
+          } catch (error) {
+            console.error(`[NaverService] ❌ Q&A 데이터 저장 실패: ${error.message}`);
+            finalSavePath = getStorageDirectory(savePath);
+          }
+        } else {
+          console.log(`[NaverService] ⚠️ 저장할 Q&A 데이터가 없습니다.`);
+          finalSavePath = getStorageDirectory(savePath);
+        }
+      }
       
       if (collectionType === 0) {
         const maxPages = getMaxPages(pages, customPages);
         console.log(`[NaverService] 리뷰 추출 시작... (최대 ${maxPages === Infinity ? '무제한' : maxPages}페이지)`);
         
+        // 이미지 저장 경로 설정 (엑셀 파일과 동일한 폴더)
+        const photoFolderPath = getStorageDirectory(savePath);
+        
         let currentPage = 1;
         while (currentPage <= maxPages) {
           console.log(`[NaverService] 📄 페이지 ${currentPage} 크롤링 중...`);
-          const pageReviews = await extractAllReviews(newPage, '', currentPage);
+          const pageReviews = await extractAllReviews(newPage, photoFolderPath, currentPage);
           allReviews = allReviews.concat(pageReviews);
           chunkReviews = chunkReviews.concat(pageReviews);
           console.log(`[NaverService] ✅ 페이지 ${currentPage}: ${pageReviews.length}개 리뷰 추출 (누적: ${allReviews.length}개)`);
@@ -259,15 +294,48 @@ export async function handleNaver(browser, page, input, isUrl, collectionType = 
       let chunkReviews = []; // Excel 청크 저장용
       let chunkCount = 1; // 청크 번호 (1부터 시작)
       const CHUNK_SIZE = 50; // 50페이지마다 청크 저장
+      let finalSavePath = null; // 저장 경로 초기화
+      
+      // Q&A 수집일 때 Q&A 추출
+      if (collectionType === 1) {
+        console.log(`[NaverService] Q&A 추출 시작...`);
+        
+        // Q&A 추출
+        const allQnAs = await extractAllQnAs(productPage, excludeSecret);
+        
+        // Q&A 데이터 JSON 저장
+        if (allQnAs.length > 0) {
+          try {
+            console.log(`[NaverService] 📁 Q&A 데이터 저장 시작... (${allQnAs.length}개)`);
+            const savedPaths = await saveReviews(allQnAs, 'naver_qna', savePath);
+            if (savedPaths.length > 0) {
+              console.log(`[NaverService] 📁 Q&A 데이터 저장 완료: ${savedPaths.join(', ')}`);
+              finalSavePath = getStorageDirectory(savePath);
+            } else {
+              console.log(`[NaverService] ⚠️ 저장할 형식이 설정되지 않았습니다. config.js를 확인하세요.`);
+              finalSavePath = getStorageDirectory(savePath);
+            }
+          } catch (error) {
+            console.error(`[NaverService] ❌ Q&A 데이터 저장 실패: ${error.message}`);
+            finalSavePath = getStorageDirectory(savePath);
+          }
+        } else {
+          console.log(`[NaverService] ⚠️ 저장할 Q&A 데이터가 없습니다.`);
+          finalSavePath = getStorageDirectory(savePath);
+        }
+      }
       
       if (collectionType === 0) {
         const maxPages = getMaxPages(pages, customPages);
         console.log(`[NaverService] 리뷰 추출 시작... (최대 ${maxPages === Infinity ? '무제한' : maxPages}페이지)`);
         
+        // 이미지 저장 경로 설정 (엑셀 파일과 동일한 폴더)
+        const photoFolderPath = getStorageDirectory(savePath);
+        
         let currentPage = 1;
         while (currentPage <= maxPages) {
           console.log(`[NaverService] 📄 페이지 ${currentPage} 크롤링 중...`);
-          const pageReviews = await extractAllReviews(productPage, '', currentPage);
+          const pageReviews = await extractAllReviews(productPage, photoFolderPath, currentPage);
           allReviews = allReviews.concat(pageReviews);
           chunkReviews = chunkReviews.concat(pageReviews);
           console.log(`[NaverService] ✅ 페이지 ${currentPage}: ${pageReviews.length}개 리뷰 추출 (누적: ${allReviews.length}개)`);
