@@ -68,6 +68,36 @@ document.addEventListener('DOMContentLoaded', () => {
   const platformToggleBtn = document.getElementById('platform-toggle-btn');
   const platformNameElement = document.getElementById('platform-name');
   
+  // config에서 plan 값 가져오기
+  let configPlan = null;
+  if (window.electronAPI && window.electronAPI.getConfig) {
+    try {
+      const config = window.electronAPI.getConfig();
+      configPlan = config?.plan;
+      console.log('[Renderer] Config plan:', configPlan);
+    } catch (error) {
+      console.error('[Renderer] Config 가져오기 실패:', error);
+    }
+  }
+  
+  // 수집 시작 버튼 활성화/비활성화 함수
+  function updateStartButtonState() {
+    const startBtn = document.getElementById('start-btn');
+    if (!startBtn) return;
+    
+    // plan이 2이고 쿠팡(platform === 1)이면 버튼 비활성화
+    if (configPlan === 2 && state.platform === 1) {
+      startBtn.disabled = true;
+      startBtn.style.opacity = '0.5';
+      startBtn.style.cursor = 'not-allowed';
+      console.log('[Renderer] 쿠팡 버튼 선택됨 - plan이 2이므로 수집 시작 버튼 비활성화');
+    } else {
+      startBtn.disabled = false;
+      startBtn.style.opacity = '1';
+      startBtn.style.cursor = 'pointer';
+    }
+  }
+  
   if (platformToggleBtn && platformNameElement) {
     // 초기 플랫폼 설정 (네이버)
     const platformNames = ['네이버', '쿠팡'];
@@ -87,6 +117,9 @@ document.addEventListener('DOMContentLoaded', () => {
       
       // 즉시 콘솔 로그 출력
       console.log(`[Renderer] 🎯 플랫폼 변경: ${platformNames[state.platform]} (값: ${state.platform})`);
+      
+      // 수집 시작 버튼 상태 업데이트
+      updateStartButtonState();
       
       // 로그 및 상태 업데이트
       updateLog();
@@ -154,11 +187,14 @@ document.addEventListener('DOMContentLoaded', () => {
             showStatusMessage('쿠팡 상품 URL이 감지되었습니다.', 'success');
           }
           
+          // 수집 시작 버튼 상태 업데이트
+          updateStartButtonState();
+          
           updateLog();
           updateExpected();
         } else {
-          statusElement.textContent = 'URL 입력됨 (플랫폼 미인식)';
-          showStatusMessage('URL 입력됨 (플랫폼 미인식)', 'warning');
+          // statusElement.textContent = 'URL 입력됨 (플랫폼 미인식)';
+          // showStatusMessage('URL 입력됨 (플랫폼 미인식)', 'warning');
         }
       } else {
         statusElement.textContent = '대기';
@@ -292,6 +328,12 @@ document.addEventListener('DOMContentLoaded', () => {
   const startBtn = document.getElementById('start-btn');
   if (startBtn) {
     startBtn.addEventListener('click', async () => {
+      // plan이 2이고 쿠팡이면 클릭 차단
+      if (configPlan === 2 && state.platform === 1) {
+        showModal('현재 플랜에서는 쿠팡 수집을 사용할 수 없습니다.');
+        return;
+      }
+      
       const url = document.getElementById('product-url').value.trim();
       if (!url) {
         showModal('상품 URL 혹은 검색어를 입력하세요.');
@@ -346,12 +388,17 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
           }
           
+          // 폴더 열기 체크박스 상태 확인
+          const openFolderCheckbox = document.getElementById('open-folder');
+          const openFolder = openFolderCheckbox && openFolderCheckbox.classList.contains('checked');
+          console.log(`[Renderer] 폴더 열기 체크박스 상태: ${openFolder}`);
+          
           console.log(`  - 저장 경로: ${savePath}`);
           addLog(`[경로] 저장 경로: ${savePath}`);
           
           addLog(`[브라우저] ${url}를 브라우저에서 엽니다...`);
           showStatusMessage('브라우저를 열고 있습니다...', 'info');
-          const result = await window.electronAPI.openUrlInBrowser(url, state.platform, state.collectionType, state.sort, state.pages, customPages, savePath);
+          const result = await window.electronAPI.openUrlInBrowser(url, state.platform, state.collectionType, state.sort, state.pages, customPages, savePath, openFolder);
           if (result.success) {
             addLog(`[브라우저] 브라우저에서 URL을 열었습니다.`);
             showStatusMessage('브라우저에서 URL을 열었습니다.', 'success');
@@ -545,4 +592,5 @@ document.addEventListener('DOMContentLoaded', () => {
   updateExpected();
   updateLog();
   fetchUserIP(); // IP 주소 로드
+  updateStartButtonState(); // 초기 수집 시작 버튼 상태 설정
 });

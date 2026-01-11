@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog, shell } from 'electron';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { initDevMode } from './electron/dev.js';
@@ -158,10 +158,10 @@ app.whenReady().then(() => {
   });
 
   // 브라우저에서 URL 열기 핸들러 (플랫폼/수집타입/정렬/페이지 포함)
-  ipcMain.handle('open-url-in-browser', async (event, url, platform = 0, collectionType = 0, sort = 0, pages = 0, customPages = null, savePath = '') => {
-    console.log('[Main] open-url-in-browser IPC handler called with URL:', url, 'Platform:', platform, 'CollectionType:', collectionType, 'Sort:', sort, 'Pages:', pages, 'CustomPages:', customPages, 'SavePath:', savePath);
+  ipcMain.handle('open-url-in-browser', async (event, url, platform = 0, collectionType = 0, sort = 0, pages = 0, customPages = null, savePath = '', openFolder = false) => {
+    console.log('[Main] open-url-in-browser IPC handler called with URL:', url, 'Platform:', platform, 'CollectionType:', collectionType, 'Sort:', sort, 'Pages:', pages, 'CustomPages:', customPages, 'SavePath:', savePath, 'OpenFolder:', openFolder);
     try {
-      const result = await openUrlInBrowser(url, platform, collectionType, sort, pages, customPages, savePath);
+      const result = await openUrlInBrowser(url, platform, collectionType, sort, pages, customPages, savePath, openFolder);
       console.log('[Main] Browser service result:', result);
       return result;
     } catch (error) {
@@ -169,6 +169,25 @@ app.whenReady().then(() => {
       return {
         success: false,
         error: error.message || '알 수 없는 오류가 발생했습니다.',
+      };
+    }
+  });
+
+  // 폴더 열기 핸들러
+  ipcMain.handle('open-folder', async (event, folderPath) => {
+    console.log('[Main] open-folder IPC handler called with path:', folderPath);
+    try {
+      if (!folderPath) {
+        throw new Error('폴더 경로가 제공되지 않았습니다.');
+      }
+      await shell.openPath(folderPath);
+      console.log('[Main] Folder opened successfully:', folderPath);
+      return { success: true };
+    } catch (error) {
+      console.error('[Main] Open folder error:', error);
+      return {
+        success: false,
+        error: error.message || '폴더를 열 수 없습니다.',
       };
     }
   });

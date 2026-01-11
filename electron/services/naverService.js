@@ -7,6 +7,7 @@ import { clickReviewOrQnATab } from './naver/naverTabActions.js';
 import { extractAllReviews } from './naver/naverReviewExtractor.js';
 import { navigateToNextPage, hasNextPage } from './naver/naverPagination.js';
 import { saveReviews, saveReviewsToExcelChunk } from '../../src/utils/naver/storage/index.js';
+import { getStorageDirectory } from '../../src/utils/naver/storage/common.js';
 
 /**
  * pages 값을 실제 페이지 수로 변환
@@ -164,12 +165,15 @@ export async function handleNaver(browser, page, input, isUrl, collectionType = 
         console.log(`[NaverService] ✅ 총 ${allReviews.length}개의 리뷰를 추출했습니다.`);
         
         // 리뷰 데이터 저장 (JSON은 전체 저장, Excel은 이미 청크로 저장됨)
+        let finalSavePath = null;
         if (allReviews.length > 0) {
           try {
             // Excel을 제외하고 저장 (Excel은 이미 청크로 저장됨)
             const savedPaths = await saveReviews(allReviews, 'naver_reviews', savePath);
             if (savedPaths.length > 0) {
               console.log(`[NaverService] 📁 리뷰 데이터 저장 완료: ${savedPaths.join(', ')}`);
+              // 저장 경로 가져오기 (폴더 열기용)
+              finalSavePath = getStorageDirectory(savePath);
             } else {
               console.log(`[NaverService] ⚠️ 저장할 형식이 설정되지 않았습니다. config.js를 확인하세요.`);
             }
@@ -187,6 +191,7 @@ export async function handleNaver(browser, page, input, isUrl, collectionType = 
         finalUrl: targetUrl,
         collectionType: collectionType,
         reviews: allReviews,
+        savePath: finalSavePath,
       };
     }
     
@@ -316,12 +321,15 @@ export async function handleNaver(browser, page, input, isUrl, collectionType = 
         console.log(`[NaverService] ✅ 총 ${allReviews.length}개의 리뷰를 추출했습니다.`);
         
         // 리뷰 데이터 저장 (JSON은 전체 저장, Excel은 이미 청크로 저장됨)
+        let finalSavePath = null;
         if (allReviews.length > 0) {
           try {
             // Excel을 제외하고 저장 (Excel은 이미 청크로 저장됨)
             const savedPaths = await saveReviews(allReviews, 'naver_reviews', savePath);
             if (savedPaths.length > 0) {
               console.log(`[NaverService] 📁 리뷰 데이터 저장 완료: ${savedPaths.join(', ')}`);
+              // 저장 경로 가져오기 (폴더 열기용)
+              finalSavePath = getStorageDirectory(savePath);
             } else {
               console.log(`[NaverService] ⚠️ 저장할 형식이 설정되지 않았습니다. config.js를 확인하세요.`);
             }
@@ -341,6 +349,7 @@ export async function handleNaver(browser, page, input, isUrl, collectionType = 
         productUrl: productUrl,
         collectionType: collectionType,
         reviews: allReviews,
+        savePath: finalSavePath,
       };
     } catch (error) {
       console.error('[NaverService] 상품 페이지 대기 중 오류:', error);

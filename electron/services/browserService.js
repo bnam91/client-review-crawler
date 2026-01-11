@@ -2,6 +2,7 @@ import puppeteer from 'puppeteer-core';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import { access } from 'fs/promises';
+import { shell } from 'electron';
 import { handleNaver } from './naverService.js';
 import { handleCoupang } from './coupangService.js';
 
@@ -105,8 +106,9 @@ function isUrl(input) {
  * @param {number} pages - 0: 5페이지, 1: 15페이지, 2: 50페이지, 3: 최대, 4: 직접입력
  * @param {number|null} customPages - 직접 입력한 페이지 수 (pages가 4일 때만 사용)
  * @param {string} savePath - 저장 경로 (선택)
+ * @param {boolean} openFolder - 크롤링 완료 후 폴더 열기 여부
  */
-export async function openUrlInBrowser(input, platform = 0, collectionType = 0, sort = 0, pages = 0, customPages = null, savePath = '') {
+export async function openUrlInBrowser(input, platform = 0, collectionType = 0, sort = 0, pages = 0, customPages = null, savePath = '', openFolder = false) {
   let browser = null;
   
   try {
@@ -252,13 +254,26 @@ export async function openUrlInBrowser(input, platform = 0, collectionType = 0, 
     const inputIsUrl = isUrl(input);
     
     // 플랫폼에 따라 해당 서비스로 위임
+    let result;
     if (platform === 1) {
       // 쿠팡 플랫폼 처리
-      return await handleCoupang(browser, page, input, inputIsUrl);
+      result = await handleCoupang(browser, page, input, inputIsUrl);
     } else {
       // 네이버 플랫폼 처리 (기본값)
-      return await handleNaver(browser, page, input, inputIsUrl, collectionType, sort, pages, customPages, savePath);
+      result = await handleNaver(browser, page, input, inputIsUrl, collectionType, sort, pages, customPages, savePath);
     }
+    
+    // 크롤링 완료 후 폴더 열기
+    if (openFolder && result && result.success && result.savePath) {
+      try {
+        await shell.openPath(result.savePath);
+        console.log('[BrowserService] 폴더 열기 완료:', result.savePath);
+      } catch (error) {
+        console.error('[BrowserService] 폴더 열기 실패:', error);
+      }
+    }
+    
+    return result;
   } catch (error) {
     console.error('[BrowserService] Error:', error);
     return {

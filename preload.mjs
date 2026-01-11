@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
+import { config } from './config.js';
 
 console.log('[Preload] Preload script loaded');
 
@@ -27,14 +28,27 @@ try {
     },
     
     // 브라우저에서 URL 열기 (플랫폼/수집타입/정렬/페이지 정보 포함)
-    openUrlInBrowser: async (url, platform = 0, collectionType = 0, sort = 0, pages = 0, customPages = null, savePath = '') => {
-      console.log('[Preload] openUrlInBrowser called with URL:', url, 'Platform:', platform, 'CollectionType:', collectionType, 'Sort:', sort, 'Pages:', pages, 'CustomPages:', customPages, 'SavePath:', savePath);
+    openUrlInBrowser: async (url, platform = 0, collectionType = 0, sort = 0, pages = 0, customPages = null, savePath = '', openFolder = false) => {
+      console.log('[Preload] openUrlInBrowser called with URL:', url, 'Platform:', platform, 'CollectionType:', collectionType, 'Sort:', sort, 'Pages:', pages, 'CustomPages:', customPages, 'SavePath:', savePath, 'OpenFolder:', openFolder);
       try {
-        const result = await ipcRenderer.invoke('open-url-in-browser', url, platform, collectionType, sort, pages, customPages, savePath);
+        const result = await ipcRenderer.invoke('open-url-in-browser', url, platform, collectionType, sort, pages, customPages, savePath, openFolder);
         console.log('[Preload] openUrlInBrowser result:', result);
         return result;
       } catch (error) {
         console.error('[Preload] openUrlInBrowser error:', error);
+        throw error;
+      }
+    },
+    
+    // 폴더 열기
+    openFolder: async (folderPath) => {
+      console.log('[Preload] openFolder called with path:', folderPath);
+      try {
+        const result = await ipcRenderer.invoke('open-folder', folderPath);
+        console.log('[Preload] openFolder result:', result);
+        return result;
+      } catch (error) {
+        console.error('[Preload] openFolder error:', error);
         throw error;
       }
     },
@@ -53,6 +67,11 @@ try {
     // 업데이트 설치
     installUpdate: () => {
       ipcRenderer.send('install-update');
+    },
+    
+    // config 가져오기
+    getConfig: () => {
+      return config;
     },
   });
   console.log('[Preload] electronAPI exposed successfully');
