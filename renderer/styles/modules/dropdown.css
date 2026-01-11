@@ -1,0 +1,25 @@
+/* Dropdown Styles */
+.dropdown-select {
+  width: 190px;
+  background: #0c0f17;
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  border-radius: 12px;
+  padding: 10px 12px;
+  color: #e7eaf0;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg width='8' height='6' viewBox='0 0 8 6' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M4 6L0 0h8L4 6z' fill='rgba(231,234,240,0.45)'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  padding-right: 32px;
+  transition: all 0.2s;
+}
+
+.dropdown-select:focus {
+  outline: none;
+  border-color: rgba(255, 255, 255, 0.20);
+  background-color: #0f1218;
+}
+

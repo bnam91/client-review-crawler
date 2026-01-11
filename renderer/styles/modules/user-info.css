@@ -1,0 +1,19 @@
+/* User Info Bar Styles */
+.user-info-bar {
+  position: absolute;
+  top: 50px;
+  right: 10px;
+  z-index: 10;
+  pointer-events: none;
+}
+
+.user-info-content {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 12px;
+  color: #8a94a8;
+  font-size: 12px;
+  font-weight: 400;
+}
+

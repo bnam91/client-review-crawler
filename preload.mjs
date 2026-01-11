@@ -38,6 +38,22 @@ try {
         throw error;
       }
     },
+    
+    // 업데이트 관련 API
+    // 업데이트 상태 수신
+    onUpdateStatus: (callback) => {
+      ipcRenderer.on('update-status', (event, data) => callback(data));
+    },
+    
+    // 업데이트 체크 요청
+    checkForUpdates: () => {
+      ipcRenderer.send('check-for-updates');
+    },
+    
+    // 업데이트 설치
+    installUpdate: () => {
+      ipcRenderer.send('install-update');
+    },
   });
   console.log('[Preload] electronAPI exposed successfully');
 } catch (error) {

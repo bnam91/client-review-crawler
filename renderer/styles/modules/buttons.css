@@ -1,0 +1,78 @@
+/* Button Styles */
+button {
+  background: #161b26;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: #d7dcec;
+  padding: 10px 20px;
+  font-size: 12px;
+  font-weight: 800;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: all 0.2s;
+  box-shadow: 0 8px 10px rgba(0, 0, 0, 0.25);
+}
+
+button:hover {
+  background: #1a1f2e;
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+#test-btn {
+  background: #2b76ff;
+  border-color: rgba(255, 255, 255, 0.14);
+  color: #ffffff;
+  box-shadow: 0 8px 18px rgba(43, 118, 255, 0.35);
+}
+
+#test-btn:hover {
+  background: #3d85ff;
+  box-shadow: 0 10px 20px rgba(43, 118, 255, 0.45);
+}
+
+.button.secondary {
+  background: #161b26;
+  color: #d7dcec;
+  padding: 10px 20px;
+  font-size: 12px;
+  font-weight: 800;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  cursor: pointer;
+  transition: all 0.2s;
+  box-shadow: 0 8px 10px rgba(0, 0, 0, 0.25);
+}
+
+.button.secondary:hover {
+  background: #1a1f2e;
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+.button.primary {
+  background: #2b76ff;
+  border-color: rgba(255, 255, 255, 0.14);
+  color: #ffffff;
+  box-shadow: 0 8px 18px rgba(43, 118, 255, 0.35);
+  padding: 10px 20px;
+  font-size: 12px;
+  font-weight: 800;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.button.primary:hover {
+  background: #3d85ff;
+  box-shadow: 0 10px 20px rgba(43, 118, 255, 0.45);
+}
+
+.big-button {
+  width: 100%;
+  padding: 14px;
+  font-size: 13px;
+}
+
+.button-group {
+  display: flex;
+  gap: 8px;
+}
+

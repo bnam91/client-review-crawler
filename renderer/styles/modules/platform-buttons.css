@@ -1,0 +1,50 @@
+/* Platform Button Styles */
+.naver-btn,
+.coupang-btn {
+  padding: 8px 20px;
+  border-radius: 10px;
+  background: #161b26;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: #cfd6e6;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s;
+  box-shadow: 0 6px 10px rgba(0, 0, 0, 0.25);
+  white-space: nowrap;
+}
+
+.naver-btn:hover,
+.coupang-btn:hover {
+  background: #1a1f2e;
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+.naver-btn.active {
+  background: #2b76ff;
+  border-color: rgba(255, 255, 255, 0.12);
+  color: #ffffff;
+  box-shadow: 0 6px 16px rgba(43, 118, 255, 0.35);
+  font-weight: 700;
+}
+
+.naver-btn.active:hover {
+  background: #2b76ff;
+  border-color: rgba(255, 255, 255, 0.12);
+  box-shadow: 0 6px 16px rgba(43, 118, 255, 0.35);
+}
+
+.coupang-btn.active {
+  background: #2b76ff;
+  border-color: rgba(255, 255, 255, 0.12);
+  color: #ffffff;
+  box-shadow: 0 6px 16px rgba(43, 118, 255, 0.35);
+  font-weight: 700;
+}
+
+.coupang-btn.active:hover {
+  background: #2b76ff;
+  border-color: rgba(255, 255, 255, 0.12);
+  box-shadow: 0 6px 16px rgba(43, 118, 255, 0.35);
+}
+

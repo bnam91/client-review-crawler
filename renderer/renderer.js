@@ -3,30 +3,20 @@
 document.addEventListener('DOMContentLoaded', () => {
   const state = {
     platform: 0, // 0: 네이버, 1: 쿠팡
+    collectionType: 0, // 0: 리뷰 수집, 1: Q&A 수집, 2: 리뷰 + Q&A 수집
     sort: 0,     // 0: 랭킹순, 1: 최신순, 2: 평점낮은순
-    pages: 0,    // 0:5, 1:15, 2:50, 3:max, 4:직접입력
-    collectQna: true // QNA 수집 여부 (기본값: true)
+    pages: 0     // 0:5, 1:15, 2:50, 3:max, 4:직접입력
   };
 
-  // 네이버/쿠팡 버튼 토글 기능
-  const naverBtn = document.getElementById('naver-btn');
-  const coupangBtn = document.getElementById('coupang-btn');
-  
-  naverBtn.addEventListener('click', () => {
-    document.querySelectorAll('[data-platform]').forEach(b => b.classList.remove('active'));
-    naverBtn.classList.add('active');
-    state.platform = 0;
-    updateLog();
-    updateExpected();
-  });
-
-  coupangBtn.addEventListener('click', () => {
-    document.querySelectorAll('[data-platform]').forEach(b => b.classList.remove('active'));
-    coupangBtn.classList.add('active');
-    state.platform = 1;
-    updateLog();
-    updateExpected();
-  });
+  // 수집 타입 드롭다운
+  const collectionTypeSelect = document.getElementById('collection-type-select');
+  if (collectionTypeSelect) {
+    collectionTypeSelect.addEventListener('change', (e) => {
+      state.collectionType = parseInt(e.target.value);
+      updateLog();
+      updateExpected();
+    });
+  }
 
   // URL 입력 감지 및 플랫폼 자동 인식
   const productUrlInput = document.getElementById('product-url');
@@ -62,30 +52,25 @@ document.addEventListener('DOMContentLoaded', () => {
         const detectedPlatform = detectPlatformFromUrl(url);
         
         if (detectedPlatform !== null) {
-          // 플랫폼 버튼 자동 선택
+          // 플랫폼 자동 감지
+          state.platform = detectedPlatform;
           if (detectedPlatform === 0) {
             // 네이버
-            document.querySelectorAll('[data-platform]').forEach(b => b.classList.remove('active'));
-            naverBtn.classList.add('active');
-            state.platform = 0;
             statusElement.textContent = '네이버 상품 감지됨';
             addLog('[자동] 네이버 상품 URL이 감지되었습니다.');
-            showStatusMessage('네이버 상품 URL이 감지되었습니다.', 'success', 3000);
+            showStatusMessage('네이버 상품 URL이 감지되었습니다.', 'success');
           } else if (detectedPlatform === 1) {
             // 쿠팡
-            document.querySelectorAll('[data-platform]').forEach(b => b.classList.remove('active'));
-            coupangBtn.classList.add('active');
-            state.platform = 1;
             statusElement.textContent = '쿠팡 상품 감지됨';
             addLog('[자동] 쿠팡 상품 URL이 감지되었습니다.');
-            showStatusMessage('쿠팡 상품 URL이 감지되었습니다.', 'success', 3000);
+            showStatusMessage('쿠팡 상품 URL이 감지되었습니다.', 'success');
           }
           
           updateLog();
           updateExpected();
         } else {
           statusElement.textContent = 'URL 입력됨 (플랫폼 미인식)';
-          showStatusMessage('URL 입력됨 (플랫폼 미인식)', 'warning', 3000);
+          showStatusMessage('URL 입력됨 (플랫폼 미인식)', 'warning');
         }
       } else {
         statusElement.textContent = '대기';
@@ -147,21 +132,6 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // QNA 수집 체크박스
-  const collectQnaCheckbox = document.getElementById('collect-qna');
-  if (collectQnaCheckbox) {
-    // 초기 상태 설정 (기본값: 체크됨)
-    if (state.collectQna) {
-      collectQnaCheckbox.classList.add('checked');
-    }
-    
-    collectQnaCheckbox.addEventListener('click', () => {
-      collectQnaCheckbox.classList.toggle('checked');
-      state.collectQna = collectQnaCheckbox.classList.contains('checked');
-      updateLog();
-      updateExpected();
-    });
-  }
 
   // 저장 경로 선택 버튼
   const selectPathBtn = document.getElementById('select-path');
@@ -235,28 +205,28 @@ document.addEventListener('DOMContentLoaded', () => {
           const result = await window.electronAPI.openUrlInBrowser(url);
           if (result.success) {
             addLog(`[브라우저] 브라우저에서 URL을 열었습니다.`);
-            showStatusMessage('브라우저에서 URL을 열었습니다.', 'success', 3000);
+            showStatusMessage('브라우저에서 URL을 열었습니다.', 'success');
           } else {
             addLog(`[오류] 브라우저 열기 실패: ${result.error || '알 수 없는 오류'}`);
-            showStatusMessage(`브라우저 열기 실패: ${result.error || '알 수 없는 오류'}`, 'error', 5000);
+            showStatusMessage(`브라우저 열기 실패: ${result.error || '알 수 없는 오류'}`, 'error');
             showModal(`브라우저 열기 실패: ${result.error || '알 수 없는 오류'}`);
           }
         } catch (error) {
           console.error('[Renderer] 브라우저 열기 오류:', error);
           addLog(`[오류] 브라우저 열기 중 오류가 발생했습니다.`);
-          showStatusMessage(`브라우저 열기 중 오류가 발생했습니다: ${error.message}`, 'error', 5000);
+          showStatusMessage(`브라우저 열기 중 오류가 발생했습니다: ${error.message}`, 'error');
           showModal(`브라우저 열기 중 오류가 발생했습니다: ${error.message}`);
         }
       } else {
         addLog('[오류] 브라우저 API를 사용할 수 없습니다.');
-        showStatusMessage('브라우저 API를 사용할 수 없습니다.', 'error', 5000);
+        showStatusMessage('브라우저 API를 사용할 수 없습니다.', 'error');
         showModal('브라우저 API를 사용할 수 없습니다.');
       }
       
       // 시뮬레이션 (실제로는 크롤링 로직 실행)
       setTimeout(() => {
         addLog('[완료] 리뷰 수집이 완료되었습니다.');
-        showStatusMessage('리뷰 수집이 완료되었습니다.', 'success', 3000);
+        showStatusMessage('리뷰 수집이 완료되었습니다.', 'success');
         startBtn.disabled = false;
         startBtn.textContent = '▶ 수집 시작';
       }, 2000);
@@ -268,15 +238,16 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!logBox) return;
     
     const platformNames = ['네이버', '쿠팡'];
+    const collectionTypeNames = ['리뷰 수집', 'Q&A 수집', '리뷰 + Q&A 수집'];
     const sortNames = ['랭킹순', '최신순', '평점낮은순'];
     const pageNames = ['5', '15', '50', 'max', '직접 입력'];
     
     const lines = [
       '<div class="log-line waiting">[대기] 상품 URL 입력을 기다리는 중…</div>',
       `<div class="log-line">[정보] 플랫폼: ${platformNames[state.platform]}</div>`,
+      `<div class="log-line">[정보] 수집 타입: ${collectionTypeNames[state.collectionType]}</div>`,
       `<div class="log-line">[정보] 정렬: ${sortNames[state.sort]}</div>`,
-      `<div class="log-line">[정보] 페이지: ${pageNames[state.pages]}</div>`,
-      `<div class="log-line">[정보] QnA 동시수집: ${state.collectQna ? '예' : '아니오'}</div>`
+      `<div class="log-line">[정보] 페이지: ${pageNames[state.pages]}</div>`
     ];
     
     logBox.innerHTML = lines.join('');
@@ -287,12 +258,12 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!expectedInfo) return;
     
     const platformNames = ['네이버', '쿠팡'];
+    const collectionTypeNames = ['리뷰 수집', 'Q&A 수집', '리뷰 + Q&A 수집'];
     const sortNames = ['랭킹순', '최신순', '평점낮은순'];
     const pageNames = ['5', '15', '50', 'max', '직접 입력'];
     
-    const qnaText = state.collectQna ? ' · QnA 동시수집' : '';
     expectedInfo.textContent = 
-      `페이지 ${pageNames[state.pages]} · 정렬 ${sortNames[state.sort]} · 플랫폼 ${platformNames[state.platform]}${qnaText}`;
+      `페이지 ${pageNames[state.pages]} · 정렬 ${sortNames[state.sort]} · 플랫폼 ${platformNames[state.platform]} · ${collectionTypeNames[state.collectionType]}`;
   }
 
   function addLog(message, className = '') {
@@ -307,7 +278,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // 상태 메시지 표시 함수
-  function showStatusMessage(message, type = 'info', duration = 0) {
+  function showStatusMessage(message, type = 'info') {
     const statusBox = document.getElementById('status-message-box');
     const statusContent = document.getElementById('status-message-content');
     
@@ -321,12 +292,7 @@ document.addEventListener('DOMContentLoaded', () => {
     statusContent.textContent = message;
     statusBox.style.display = 'block';
     
-    // duration이 0이면 자동으로 숨기지 않음
-    if (duration > 0) {
-      setTimeout(() => {
-        hideStatusMessage();
-      }, duration);
-    }
+    // 상태 메시지는 사라지지 않음
   }
 
   // 상태 메시지 숨기기 함수
@@ -360,7 +326,57 @@ document.addEventListener('DOMContentLoaded', () => {
     };
   }
 
+  // IP 주소 가져오기
+  async function fetchUserIP() {
+    const userIpElement = document.getElementById('user-ip');
+    if (!userIpElement) return;
+    
+    try {
+      // 여러 API를 시도 (하나가 실패하면 다음으로)
+      const apis = [
+        { url: 'https://api.ipify.org?format=json', type: 'json' },
+        { url: 'https://api.ip.sb/ip', type: 'text' },
+        { url: 'https://ifconfig.me/ip', type: 'text' },
+      ];
+      
+      let ip = null;
+      
+      for (const api of apis) {
+        try {
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 5000);
+          
+          const response = await fetch(api.url, { signal: controller.signal });
+          clearTimeout(timeoutId);
+          
+          if (api.type === 'json') {
+            const data = await response.json();
+            ip = data.ip;
+          } else {
+            ip = await response.text();
+            ip = ip.trim();
+          }
+          
+          if (ip) break;
+        } catch (error) {
+          console.log(`[Renderer] IP API 실패 (${api.url}):`, error.message);
+          continue;
+        }
+      }
+      
+      if (ip) {
+        userIpElement.textContent = `ip: ${ip}`;
+      } else {
+        userIpElement.textContent = 'ip: 확인 불가';
+      }
+    } catch (error) {
+      console.error('[Renderer] IP 가져오기 오류:', error);
+      userIpElement.textContent = 'ip: 확인 불가';
+    }
+  }
+
   // 초기화
   updateExpected();
   updateLog();
+  fetchUserIP(); // IP 주소 로드
 });

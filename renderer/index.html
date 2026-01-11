@@ -17,6 +17,14 @@
       <div class="status-message-content" id="status-message-content"></div>
     </div>
     
+    <!-- 유저 정보 바 -->
+    <div class="user-info-bar" id="user-info-bar">
+      <div class="user-info-content">
+        <div class="user-name" id="user-name">user: -</div>
+        <div class="user-ip" id="user-ip">ip: 로딩 중...</div>
+      </div>
+    </div>
+    
     <div class="cards-container">
       <div class="card">
         <div class="form-row">
@@ -27,10 +35,6 @@
             class="input-box" 
             placeholder="상품링크를 입력하세요"
           />
-          <div class="tag-group">
-            <button class="tag active" id="naver-btn" data-platform="0">네이버</button>
-            <button class="tag" id="coupang-btn" data-platform="1">쿠팡</button>
-          </div>
         </div>
         <div class="status-box" style="display: none;">
           <div class="status-row">
@@ -39,16 +43,17 @@
           </div>
         </div>
         <div class="form-row">
-          <label class="form-label">정렬순서</label>
+          <label class="form-label">항목 및 순서</label>
+          <select class="dropdown-select" id="collection-type-select">
+            <option value="0">리뷰 수집</option>
+            <option value="1">Q&A 수집</option>
+            <option value="2">리뷰 + Q&A 수집</option>
+          </select>
           <select class="dropdown-select" id="sort-select">
             <option value="0">랭킹순</option>
             <option value="1">최신순</option>
             <option value="2">평점낮은순</option>
           </select>
-          <div class="checkbox-group" style="margin-left: auto; margin-right: 25px;">
-            <div class="checkbox checked" id="collect-qna"></div>
-            <label for="collect-qna" style="cursor: pointer; font-size: 12px; font-weight: 650; color: #aeb7ca;">QnA 동시수집</label>
-          </div>
         </div>
         <div class="form-row">
           <label class="form-label">리뷰 페이지</label>
@@ -108,6 +113,25 @@
     </div>
   </div>
   
+  <!-- 업데이트 알림 -->
+  <div id="update-notification" class="update-notification" style="display: none;">
+    <div class="update-content">
+      <h3 id="update-title">업데이트 확인 중...</h3>
+      <p id="update-message"></p>
+      <div id="update-progress" class="update-progress" style="display: none;">
+        <div class="progress-bar">
+          <div id="progress-fill" class="progress-fill" style="width: 0%"></div>
+        </div>
+        <span id="progress-text">0%</span>
+      </div>
+      <div id="update-actions" class="update-actions" style="display: none;">
+        <button id="update-install-btn" onclick="window.installUpdate()">업데이트 설치</button>
+        <button id="update-later-btn" onclick="window.hideUpdateNotification()">나중에</button>
+      </div>
+    </div>
+  </div>
+  
   <script src="renderer.js"></script>
+  <script src="updater.js"></script>
 </body>
 </html>

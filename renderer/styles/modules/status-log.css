@@ -1,0 +1,56 @@
+/* Status & Log Styles */
+.status-box {
+  background: #0c0f17;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  padding: 12px;
+  margin-top: 0;
+  margin-bottom: 16px;
+}
+
+.status-row {
+  display: flex;
+  gap: 8px;
+  font-size: 11px;
+}
+
+.status-label {
+  font-weight: 800;
+  color: rgba(231, 234, 240, 0.55);
+}
+
+.status-value {
+  font-weight: 800;
+  color: #d7dcec;
+}
+
+.stats-box {
+  background: #0c0f17;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  padding: 12px;
+  margin-top: 16px;
+}
+
+.log-box {
+  background: #0c0f17;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  padding: 12px;
+  flex: 1;
+  min-height: 132px;
+  overflow-y: auto;
+  font-family: 'Monaco', 'Menlo', monospace;
+  font-size: 11px;
+  line-height: 22px;
+}
+
+.log-line {
+  color: rgba(231, 234, 240, 0.78);
+  margin-bottom: 2px;
+}
+
+.log-line.waiting {
+  color: rgba(231, 234, 240, 0.55);
+}
+

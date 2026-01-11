@@ -1,0 +1,118 @@
+/* Update Notification Styles */
+.update-notification {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  background: #101522;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  padding: 20px;
+  min-width: 320px;
+  max-width: 400px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+  z-index: 2000;
+  animation: slideIn 0.3s ease-out;
+}
+
+@keyframes slideIn {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+.update-content {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.update-content h3 {
+  margin: 0;
+  color: #e7eaf0;
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.update-content p {
+  margin: 0;
+  color: rgba(231, 234, 240, 0.78);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.5;
+}
+
+.update-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.progress-bar {
+  width: 100%;
+  height: 8px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  background: #2b76ff;
+  border-radius: 4px;
+  transition: width 0.3s ease;
+  box-shadow: 0 0 10px rgba(43, 118, 255, 0.5);
+}
+
+#progress-text {
+  color: rgba(231, 234, 240, 0.65);
+  font-size: 11px;
+  font-weight: 600;
+  text-align: center;
+}
+
+.update-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+#update-install-btn,
+#update-later-btn {
+  flex: 1;
+  padding: 10px 16px;
+  font-size: 12px;
+  font-weight: 800;
+  border-radius: 8px;
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+#update-install-btn {
+  background: #2b76ff;
+  color: #ffffff;
+  box-shadow: 0 4px 12px rgba(43, 118, 255, 0.35);
+}
+
+#update-install-btn:hover {
+  background: #3d85ff;
+  box-shadow: 0 6px 16px rgba(43, 118, 255, 0.45);
+}
+
+#update-later-btn {
+  background: rgba(255, 255, 255, 0.05);
+  color: rgba(231, 234, 240, 0.78);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+#update-later-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #e7eaf0;
+}
+

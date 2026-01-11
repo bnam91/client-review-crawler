@@ -1,0 +1,41 @@
+/* Status Message Styles */
+.status-message-box {
+  position: absolute;
+  top: 50px;
+  left: 10px;
+  right: 10px;
+  z-index: 10;
+  pointer-events: none;
+}
+
+.status-message-content {
+  color: #8a94a8;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.5;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.status-message-content::before {
+  content: 'ℹ️';
+  font-size: 14px;
+}
+
+.status-message-box.info .status-message-content::before {
+  content: 'ℹ️';
+}
+
+.status-message-box.success .status-message-content::before {
+  content: '✅';
+}
+
+.status-message-box.warning .status-message-content::before {
+  content: '⚠️';
+}
+
+.status-message-box.error .status-message-content::before {
+  content: '❌';
+}
+

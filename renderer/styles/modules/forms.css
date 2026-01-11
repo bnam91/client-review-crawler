@@ -1,0 +1,89 @@
+/* Form Styles */
+.form-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.form-row:last-child {
+  margin-bottom: 0;
+}
+
+.form-label {
+  font-size: 12px;
+  font-weight: 650;
+  color: #aeb7ca;
+  min-width: 70px;
+  white-space: nowrap;
+}
+
+.input-box {
+  flex: 1;
+  background: #0c0f17;
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  border-radius: 12px;
+  padding: 10px 12px;
+  color: #e7eaf0;
+  font-size: 12px;
+  font-weight: 650;
+  transition: all 0.2s;
+}
+
+.input-box:focus {
+  outline: none;
+  border-color: rgba(255, 255, 255, 0.20);
+  background: #0f1218;
+}
+
+.input-box::placeholder {
+  color: rgba(231, 234, 240, 0.35);
+}
+
+.input-box:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.product-link-input {
+  flex: 1;
+  padding: 10px 12px;
+  font-size: 12px;
+  background: #0c0f17;
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  border-radius: 12px;
+  color: #e7eaf0;
+  font-weight: 650;
+  outline: none;
+  transition: all 0.2s;
+}
+
+.product-link-input::placeholder {
+  color: rgba(231, 234, 240, 0.35);
+}
+
+.product-link-input:focus {
+  background: #0f1218;
+  border-color: rgba(255, 255, 255, 0.20);
+}
+
+.product-link-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 15px;
+}
+
+.hint {
+  font-size: 11px;
+  font-weight: 600;
+  color: rgba(231, 234, 240, 0.55);
+  margin-top: 0;
+  margin-bottom: 16px;
+}
+
+.disabled {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
