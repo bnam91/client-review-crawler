@@ -6,6 +6,28 @@ import { navigateToNaver, createNaverSearchUrl, isNaverProductPage, waitForNaver
 import { clickReviewOrQnATab } from './naver/naverTabActions.js';
 import { extractAllReviews } from './naver/naverReviewExtractor.js';
 import { navigateToNextPage, hasNextPage } from './naver/naverPagination.js';
+import { saveReviews, saveReviewsToExcelChunk } from '../../src/utils/naver/storage/index.js';
+
+/**
+ * pages 값을 실제 페이지 수로 변환
+ * @param {number} pages - 0: 5페이지, 1: 15페이지, 2: 50페이지, 3: 최대, 4: 직접입력
+ * @param {number|null} customPages - 직접 입력한 페이지 수 (pages가 4일 때만 사용)
+ * @returns {number} 실제 크롤링할 페이지 수
+ */
+function getMaxPages(pages, customPages = null) {
+  if (pages === 4 && customPages !== null && customPages > 0) {
+    return customPages;
+  }
+  
+  const pageMap = {
+    0: 5,   // 5페이지
+    1: 15,  // 15페이지
+    2: 50,  // 50페이지
+    3: Infinity, // 최대
+    4: 5    // 직접입력 (기본값 5, customPages가 없을 때)
+  };
+  return pageMap[pages] || 5;
+}
 
 /**
  * 네이버 플랫폼 처리 메인 함수
@@ -15,8 +37,13 @@ import { navigateToNextPage, hasNextPage } from './naver/naverPagination.js';
  * @param {boolean} isUrl - URL 여부
  * @param {number} collectionType - 0: 리뷰 수집, 1: Q&A 수집
  * @param {number} sort - 0: 랭킹순, 1: 최신순, 2: 평점낮은순
+ * @param {number} pages - 0: 5페이지, 1: 15페이지, 2: 50페이지, 3: 최대, 4: 직접입력
+ * @param {number|null} customPages - 직접 입력한 페이지 수 (pages가 4일 때만 사용)
+ * @param {string} savePath - 저장 경로 (선택)
  */
-export async function handleNaver(browser, page, input, isUrl, collectionType = 0, sort = 0) {
+export async function handleNaver(browser, page, input, isUrl, collectionType = 0, sort = 0, pages = 0, customPages = null, savePath = '') {
+  console.log(`[NaverService] 저장 경로: ${savePath || '(지정되지 않음)'}`);
+  
   // 1. 먼저 네이버 메인 페이지로 이동
   await navigateToNaver(page);
   
@@ -70,14 +97,85 @@ export async function handleNaver(browser, page, input, isUrl, collectionType = 
       console.log(`[NaverService] clickReviewOrQnATab 호출 - collectionType: ${collectionType}, sort: ${sort} (${sortNames[sort] || '알 수 없음'})`);
       await clickReviewOrQnATab(newPage, collectionType, sort);
       
-      // 리뷰 수집일 때 리뷰 추출
-      let reviews = [];
+      // 리뷰 수집일 때 리뷰 추출 (여러 페이지)
+      let allReviews = [];
+      let chunkReviews = []; // Excel 청크 저장용
+      let chunkCount = 1; // 청크 번호 (1부터 시작)
+      const CHUNK_SIZE = 50; // 50페이지마다 청크 저장
+      
       if (collectionType === 0) {
-        console.log('[NaverService] 리뷰 추출 시작...');
-        reviews = await extractAllReviews(newPage, '', 1);
-        console.log(`[NaverService] ✅ ${reviews.length}개의 리뷰를 추출했습니다.`);
-        if (reviews.length > 0) {
-          console.log('[NaverService] 추출된 리뷰 데이터:', JSON.stringify(reviews, null, 2));
+        const maxPages = getMaxPages(pages, customPages);
+        console.log(`[NaverService] 리뷰 추출 시작... (최대 ${maxPages === Infinity ? '무제한' : maxPages}페이지)`);
+        
+        let currentPage = 1;
+        while (currentPage <= maxPages) {
+          console.log(`[NaverService] 📄 페이지 ${currentPage} 크롤링 중...`);
+          const pageReviews = await extractAllReviews(newPage, '', currentPage);
+          allReviews = allReviews.concat(pageReviews);
+          chunkReviews = chunkReviews.concat(pageReviews);
+          console.log(`[NaverService] ✅ 페이지 ${currentPage}: ${pageReviews.length}개 리뷰 추출 (누적: ${allReviews.length}개)`);
+          
+          // 50페이지마다 Excel 청크 저장
+          if (currentPage % CHUNK_SIZE === 0 && chunkReviews.length > 0) {
+            try {
+              console.log(`[NaverService] 📦 ${CHUNK_SIZE}페이지 단위 청크 저장 (청크 ${chunkCount})`);
+              const chunkPath = await saveReviewsToExcelChunk(chunkReviews, 'naver_reviews', savePath, chunkCount);
+              if (chunkPath) {
+                console.log(`[NaverService] ✅ 청크 ${chunkCount} 저장 완료: ${chunkPath}`);
+              }
+              chunkReviews = []; // 청크 리뷰 초기화
+              chunkCount++;
+            } catch (error) {
+              console.error(`[NaverService] ❌ 청크 저장 실패: ${error.message}`);
+            }
+          }
+          
+          // 마지막 페이지가 아니고 다음 페이지가 있으면 이동
+          if (currentPage < maxPages) {
+            const hasNext = await hasNextPage(newPage);
+            if (!hasNext) {
+              console.log(`[NaverService] ⚠️ 다음 페이지가 없어 크롤링을 종료합니다.`);
+              break;
+            }
+            
+            const nextPageSuccess = await navigateToNextPage(newPage, currentPage + 1);
+            if (!nextPageSuccess) {
+              console.log(`[NaverService] ⚠️ 페이지 ${currentPage + 1}로 이동 실패. 크롤링을 종료합니다.`);
+              break;
+            }
+          }
+          
+          currentPage++;
+        }
+        
+        // 마지막 남은 청크 저장 (50페이지 단위가 아닌 경우)
+        if (chunkReviews.length > 0) {
+          try {
+            console.log(`[NaverService] 📦 마지막 청크 저장 (청크 ${chunkCount}, ${chunkReviews.length}개 리뷰)`);
+            const chunkPath = await saveReviewsToExcelChunk(chunkReviews, 'naver_reviews', savePath, chunkCount);
+            if (chunkPath) {
+              console.log(`[NaverService] ✅ 마지막 청크 ${chunkCount} 저장 완료: ${chunkPath}`);
+            }
+          } catch (error) {
+            console.error(`[NaverService] ❌ 마지막 청크 저장 실패: ${error.message}`);
+          }
+        }
+        
+        console.log(`[NaverService] ✅ 총 ${allReviews.length}개의 리뷰를 추출했습니다.`);
+        
+        // 리뷰 데이터 저장 (JSON은 전체 저장, Excel은 이미 청크로 저장됨)
+        if (allReviews.length > 0) {
+          try {
+            // Excel을 제외하고 저장 (Excel은 이미 청크로 저장됨)
+            const savedPaths = await saveReviews(allReviews, 'naver_reviews', savePath);
+            if (savedPaths.length > 0) {
+              console.log(`[NaverService] 📁 리뷰 데이터 저장 완료: ${savedPaths.join(', ')}`);
+            } else {
+              console.log(`[NaverService] ⚠️ 저장할 형식이 설정되지 않았습니다. config.js를 확인하세요.`);
+            }
+          } catch (error) {
+            console.error(`[NaverService] ❌ 리뷰 데이터 저장 실패: ${error.message}`);
+          }
         }
       }
       
@@ -88,7 +186,7 @@ export async function handleNaver(browser, page, input, isUrl, collectionType = 
         platform: '네이버',
         finalUrl: targetUrl,
         collectionType: collectionType,
-        reviews: reviews,
+        reviews: allReviews,
       };
     }
     
@@ -151,14 +249,85 @@ export async function handleNaver(browser, page, input, isUrl, collectionType = 
       console.log(`[NaverService] clickReviewOrQnATab 호출 - collectionType: ${collectionType}, sort: ${sort} (${sortNames[sort] || '알 수 없음'})`);
       await clickReviewOrQnATab(productPage, collectionType, sort);
       
-      // 리뷰 수집일 때 리뷰 추출
-      let reviews = [];
+      // 리뷰 수집일 때 리뷰 추출 (여러 페이지)
+      let allReviews = [];
+      let chunkReviews = []; // Excel 청크 저장용
+      let chunkCount = 1; // 청크 번호 (1부터 시작)
+      const CHUNK_SIZE = 50; // 50페이지마다 청크 저장
+      
       if (collectionType === 0) {
-        console.log('[NaverService] 리뷰 추출 시작...');
-        reviews = await extractAllReviews(productPage, '', 1);
-        console.log(`[NaverService] ✅ ${reviews.length}개의 리뷰를 추출했습니다.`);
-        if (reviews.length > 0) {
-          console.log('[NaverService] 추출된 리뷰 데이터:', JSON.stringify(reviews, null, 2));
+        const maxPages = getMaxPages(pages, customPages);
+        console.log(`[NaverService] 리뷰 추출 시작... (최대 ${maxPages === Infinity ? '무제한' : maxPages}페이지)`);
+        
+        let currentPage = 1;
+        while (currentPage <= maxPages) {
+          console.log(`[NaverService] 📄 페이지 ${currentPage} 크롤링 중...`);
+          const pageReviews = await extractAllReviews(productPage, '', currentPage);
+          allReviews = allReviews.concat(pageReviews);
+          chunkReviews = chunkReviews.concat(pageReviews);
+          console.log(`[NaverService] ✅ 페이지 ${currentPage}: ${pageReviews.length}개 리뷰 추출 (누적: ${allReviews.length}개)`);
+          
+          // 50페이지마다 Excel 청크 저장
+          if (currentPage % CHUNK_SIZE === 0 && chunkReviews.length > 0) {
+            try {
+              console.log(`[NaverService] 📦 ${CHUNK_SIZE}페이지 단위 청크 저장 (청크 ${chunkCount})`);
+              const chunkPath = await saveReviewsToExcelChunk(chunkReviews, 'naver_reviews', savePath, chunkCount);
+              if (chunkPath) {
+                console.log(`[NaverService] ✅ 청크 ${chunkCount} 저장 완료: ${chunkPath}`);
+              }
+              chunkReviews = []; // 청크 리뷰 초기화
+              chunkCount++;
+            } catch (error) {
+              console.error(`[NaverService] ❌ 청크 저장 실패: ${error.message}`);
+            }
+          }
+          
+          // 마지막 페이지가 아니고 다음 페이지가 있으면 이동
+          if (currentPage < maxPages) {
+            const hasNext = await hasNextPage(productPage);
+            if (!hasNext) {
+              console.log(`[NaverService] ⚠️ 다음 페이지가 없어 크롤링을 종료합니다.`);
+              break;
+            }
+            
+            const nextPageSuccess = await navigateToNextPage(productPage, currentPage + 1);
+            if (!nextPageSuccess) {
+              console.log(`[NaverService] ⚠️ 페이지 ${currentPage + 1}로 이동 실패. 크롤링을 종료합니다.`);
+              break;
+            }
+          }
+          
+          currentPage++;
+        }
+        
+        // 마지막 남은 청크 저장 (50페이지 단위가 아닌 경우)
+        if (chunkReviews.length > 0) {
+          try {
+            console.log(`[NaverService] 📦 마지막 청크 저장 (청크 ${chunkCount}, ${chunkReviews.length}개 리뷰)`);
+            const chunkPath = await saveReviewsToExcelChunk(chunkReviews, 'naver_reviews', savePath, chunkCount);
+            if (chunkPath) {
+              console.log(`[NaverService] ✅ 마지막 청크 ${chunkCount} 저장 완료: ${chunkPath}`);
+            }
+          } catch (error) {
+            console.error(`[NaverService] ❌ 마지막 청크 저장 실패: ${error.message}`);
+          }
+        }
+        
+        console.log(`[NaverService] ✅ 총 ${allReviews.length}개의 리뷰를 추출했습니다.`);
+        
+        // 리뷰 데이터 저장 (JSON은 전체 저장, Excel은 이미 청크로 저장됨)
+        if (allReviews.length > 0) {
+          try {
+            // Excel을 제외하고 저장 (Excel은 이미 청크로 저장됨)
+            const savedPaths = await saveReviews(allReviews, 'naver_reviews', savePath);
+            if (savedPaths.length > 0) {
+              console.log(`[NaverService] 📁 리뷰 데이터 저장 완료: ${savedPaths.join(', ')}`);
+            } else {
+              console.log(`[NaverService] ⚠️ 저장할 형식이 설정되지 않았습니다. config.js를 확인하세요.`);
+            }
+          } catch (error) {
+            console.error(`[NaverService] ❌ 리뷰 데이터 저장 실패: ${error.message}`);
+          }
         }
       }
       
@@ -171,7 +340,7 @@ export async function handleNaver(browser, page, input, isUrl, collectionType = 
         searchUrl: targetUrl,
         productUrl: productUrl,
         collectionType: collectionType,
-        reviews: reviews,
+        reviews: allReviews,
       };
     } catch (error) {
       console.error('[NaverService] 상품 페이지 대기 중 오류:', error);

@@ -102,8 +102,11 @@ function isUrl(input) {
  * @param {number} platform - 0: 네이버, 1: 쿠팡
  * @param {number} collectionType - 0: 리뷰 수집, 1: Q&A 수집
  * @param {number} sort - 0: 랭킹순, 1: 최신순, 2: 평점낮은순
+ * @param {number} pages - 0: 5페이지, 1: 15페이지, 2: 50페이지, 3: 최대, 4: 직접입력
+ * @param {number|null} customPages - 직접 입력한 페이지 수 (pages가 4일 때만 사용)
+ * @param {string} savePath - 저장 경로 (선택)
  */
-export async function openUrlInBrowser(input, platform = 0, collectionType = 0, sort = 0) {
+export async function openUrlInBrowser(input, platform = 0, collectionType = 0, sort = 0, pages = 0, customPages = null, savePath = '') {
   let browser = null;
   
   try {
@@ -119,6 +122,24 @@ export async function openUrlInBrowser(input, platform = 0, collectionType = 0, 
     console.log('[BrowserService] Platform:', platform === 0 ? '네이버' : '쿠팡');
     console.log('[BrowserService] CollectionType:', collectionType === 0 ? '리뷰 수집' : 'Q&A 수집');
     console.log('[BrowserService] Sort:', sort === 0 ? '랭킹순' : sort === 1 ? '최신순' : '평점낮은순');
+    console.log('[BrowserService] SavePath:', savePath || '(지정되지 않음)');
+    
+    // pages 값을 실제 페이지 수로 변환하여 출력
+    const pageMap = {
+      0: '5페이지',
+      1: '15페이지',
+      2: '50페이지',
+      3: '최대',
+      4: '직접입력'
+    };
+    let maxPages;
+    if (pages === 4 && customPages !== null) {
+      maxPages = customPages;
+      console.log(`[BrowserService] Pages: ${pageMap[pages] || pages} (값: ${pages}, 직접 입력: ${customPages}페이지)`);
+    } else {
+      maxPages = pages === 3 ? Infinity : (pages === 0 ? 5 : pages === 1 ? 15 : pages === 2 ? 50 : 5);
+      console.log(`[BrowserService] Pages: ${pageMap[pages] || pages} (값: ${pages}, 실제: ${maxPages === Infinity ? '무제한' : maxPages}페이지)`);
+    }
     
     // puppeteer-core로 브라우저 실행
     browser = await puppeteer.launch({
@@ -131,8 +152,8 @@ export async function openUrlInBrowser(input, platform = 0, collectionType = 0, 
       ],
     });
     
-    const pages = await browser.pages();
-    const page = pages[0] || await browser.newPage();
+    const browserPages = await browser.pages();
+    const page = browserPages[0] || await browser.newPage();
     
     // CDP 클라이언트 생성
     const client = await page.target().createCDPSession();
@@ -236,7 +257,7 @@ export async function openUrlInBrowser(input, platform = 0, collectionType = 0, 
       return await handleCoupang(browser, page, input, inputIsUrl);
     } else {
       // 네이버 플랫폼 처리 (기본값)
-      return await handleNaver(browser, page, input, inputIsUrl, collectionType, sort);
+      return await handleNaver(browser, page, input, inputIsUrl, collectionType, sort, pages, customPages, savePath);
     }
   } catch (error) {
     console.error('[BrowserService] Error:', error);

@@ -317,11 +317,41 @@ document.addEventListener('DOMContentLoaded', () => {
           console.log(`  - 항목 및 순서: ${collectionTypeNames[state.collectionType]} (값: ${state.collectionType})`);
           console.log(`  - 정렬: ${sortNames[state.sort]} (값: ${state.sort})`);
           console.log(`  - 페이지: ${pageNames[state.pages]} (값: ${state.pages})`);
+          
+          // 직접 입력인 경우 입력값 가져오기
+          let customPages = null;
+          if (state.pages === 4 && customPagesInput) {
+            const customValue = parseInt(customPagesInput.value);
+            if (!isNaN(customValue) && customValue > 0) {
+              customPages = customValue;
+              console.log(`  - 직접 입력 페이지 수: ${customPages}`);
+            } else {
+              showModal('직접 입력 페이지 수를 올바르게 입력해주세요.');
+              return;
+            }
+          }
+          
           console.log(`  - URL: ${url}`);
+          
+          // 저장 경로 가져오기 (필수)
+          const savePathElement = document.getElementById('save-path');
+          const savePath = savePathElement ? savePathElement.value.trim() : '';
+          console.log(`[Renderer] 저장 경로 입력 필드 값: "${savePath}"`);
+          
+          // 경로 필수 체크
+          if (!savePath || savePath === '') {
+            showModal('저장 경로를 반드시 선택해주세요.');
+            startBtn.disabled = false;
+            startBtn.textContent = '수집 시작하기';
+            return;
+          }
+          
+          console.log(`  - 저장 경로: ${savePath}`);
+          addLog(`[경로] 저장 경로: ${savePath}`);
           
           addLog(`[브라우저] ${url}를 브라우저에서 엽니다...`);
           showStatusMessage('브라우저를 열고 있습니다...', 'info');
-          const result = await window.electronAPI.openUrlInBrowser(url, state.platform, state.collectionType, state.sort);
+          const result = await window.electronAPI.openUrlInBrowser(url, state.platform, state.collectionType, state.sort, state.pages, customPages, savePath);
           if (result.success) {
             addLog(`[브라우저] 브라우저에서 URL을 열었습니다.`);
             showStatusMessage('브라우저에서 URL을 열었습니다.', 'success');
