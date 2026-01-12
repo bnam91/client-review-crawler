@@ -275,6 +275,64 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
+  // 노션 문서 버튼
+  const notionBtn = document.getElementById('notion-btn');
+  if (notionBtn && window.electronAPI && window.electronAPI.openExternalUrl) {
+    notionBtn.addEventListener('click', () => {
+      console.log('[Renderer] 노션 문서 버튼 클릭');
+      window.electronAPI.openExternalUrl('https://crystalline-trapezoid-61b.notion.site/Review-Crawler-2e6111a577888074bcd9c0707f344fbf');
+    });
+  }
+
+  // 타이틀 클릭 시 노션 링크 열기
+  const appTitle = document.getElementById('app-title');
+  if (appTitle && window.electronAPI && window.electronAPI.openExternalUrl) {
+    appTitle.addEventListener('click', () => {
+      console.log('[Renderer] 타이틀 클릭 - 노션 문서 열기');
+      window.electronAPI.openExternalUrl('https://crystalline-trapezoid-61b.notion.site/Review-Crawler-2e6111a577888074bcd9c0707f344fbf');
+    });
+  }
+
+  // 노션 링크 버튼
+  const notionLinkBtn = document.getElementById('notion-link-btn');
+  if (notionLinkBtn && window.electronAPI && window.electronAPI.openExternalUrl) {
+    notionLinkBtn.addEventListener('click', () => {
+      console.log('[Renderer] 노션 링크 버튼 클릭');
+      window.electronAPI.openExternalUrl('https://crystalline-trapezoid-61b.notion.site/Review-Crawler-2e6111a577888074bcd9c0707f344fbf');
+    });
+  }
+
+  // 메뉴 버튼 클릭 시 패널 토글
+  const menuBtn = document.getElementById('menu-btn');
+  const menuPanel = document.getElementById('menu-panel');
+  const menuUserName = document.getElementById('menu-user-name');
+  const menuUserIp = document.getElementById('menu-user-ip');
+  const userName = document.getElementById('user-name');
+  const userIp = document.getElementById('user-ip');
+
+  if (menuBtn && menuPanel) {
+    menuBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const isVisible = menuPanel.style.display !== 'none';
+      menuPanel.style.display = isVisible ? 'none' : 'block';
+      
+      // user와 ip 정보를 패널에 동기화
+      if (userName && menuUserName) {
+        menuUserName.textContent = userName.textContent.replace('user: ', '');
+      }
+      if (userIp && menuUserIp) {
+        menuUserIp.textContent = userIp.textContent.replace('ip: ', '');
+      }
+    });
+
+    // 패널 외부 클릭 시 닫기
+    document.addEventListener('click', (e) => {
+      if (menuPanel && !menuPanel.contains(e.target) && e.target !== menuBtn) {
+        menuPanel.style.display = 'none';
+      }
+    });
+  }
+
   // 저장 경로 선택 버튼
   const selectPathBtn = document.getElementById('select-path');
   const savePathInput = document.getElementById('save-path');
@@ -529,7 +587,10 @@ document.addEventListener('DOMContentLoaded', () => {
   // IP 주소 가져오기
   async function fetchUserIP() {
     const userIpElement = document.getElementById('user-ip');
-    if (!userIpElement) return;
+    const menuUserIp = document.getElementById('menu-user-ip');
+    
+    // user-ip 요소가 없어도 menu-user-ip는 업데이트해야 함
+    if (!userIpElement && !menuUserIp) return;
     
     try {
       // 여러 API를 시도 (하나가 실패하면 다음으로)
@@ -564,14 +625,27 @@ document.addEventListener('DOMContentLoaded', () => {
         }
       }
       
-      if (ip) {
-        userIpElement.textContent = `ip: ${ip}`;
-      } else {
-        userIpElement.textContent = 'ip: 확인 불가';
+      const ipText = ip ? ip : '확인 불가';
+      const ipTextWithLabel = ip ? `ip: ${ip}` : 'ip: 확인 불가';
+      
+      if (userIpElement) {
+        userIpElement.textContent = ipTextWithLabel;
+      }
+      // 메뉴 패널의 ip도 업데이트
+      if (menuUserIp) {
+        menuUserIp.textContent = ipText;
       }
     } catch (error) {
       console.error('[Renderer] IP 가져오기 오류:', error);
-      userIpElement.textContent = 'ip: 확인 불가';
+      const errorText = '확인 불가';
+      const errorTextWithLabel = 'ip: 확인 불가';
+      
+      if (userIpElement) {
+        userIpElement.textContent = errorTextWithLabel;
+      }
+      if (menuUserIp) {
+        menuUserIp.textContent = errorText;
+      }
     }
   }
 
@@ -592,9 +666,45 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
   
+  // 실시간 시간 및 날짜 업데이트
+  function updateTime() {
+    const timeElement = document.getElementById('app-time');
+    const dateElement = document.getElementById('app-date');
+    const menuTimeElement = document.getElementById('menu-app-time');
+    const menuDateElement = document.getElementById('menu-app-date');
+    const now = new Date();
+    
+    const hours = String(now.getHours()).padStart(2, '0');
+    const minutes = String(now.getMinutes()).padStart(2, '0');
+    const seconds = String(now.getSeconds()).padStart(2, '0');
+    const timeText = `${hours}:${minutes}:${seconds}`;
+    
+    const month = now.getMonth() + 1;
+    const date = now.getDate();
+    const weekdays = ['일', '월', '화', '수', '목', '금', '토'];
+    const weekday = weekdays[now.getDay()];
+    const dateText = `${month}월 ${date}일 (${weekday})`;
+    
+    if (timeElement) {
+      timeElement.textContent = timeText;
+    }
+    if (dateElement) {
+      dateElement.textContent = dateText;
+    }
+    // 메뉴 패널의 시간과 날짜도 업데이트
+    if (menuTimeElement) {
+      menuTimeElement.textContent = timeText;
+    }
+    if (menuDateElement) {
+      menuDateElement.textContent = dateText;
+    }
+  }
+  
   // 초기화
   updateExpected();
   updateLog();
   fetchUserIP(); // IP 주소 로드
   updateStartButtonState(); // 초기 수집 시작 버튼 상태 설정
+  updateTime(); // 초기 시간 표시
+  setInterval(updateTime, 1000); // 1초마다 시간 업데이트
 });

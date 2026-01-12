@@ -28,6 +28,7 @@
   font-size: 12px;
   font-weight: 650;
   transition: all 0.2s;
+  -webkit-app-region: no-drag; /* 입력 필드는 드래그 불가 */
 }
 
 .input-box:focus {

@@ -15,6 +15,7 @@
   background-position: right 12px center;
   padding-right: 32px;
   transition: all 0.2s;
+  -webkit-app-region: no-drag; /* 드롭다운은 드래그 불가 */
 }
 
 .dropdown-select:focus {

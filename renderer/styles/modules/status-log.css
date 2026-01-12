@@ -43,6 +43,7 @@
   font-family: 'Monaco', 'Menlo', monospace;
   font-size: 11px;
   line-height: 22px;
+  -webkit-app-region: no-drag; /* 로그 박스는 드래그 불가 */
 }
 
 .log-line {

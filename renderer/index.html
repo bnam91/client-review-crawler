@@ -9,20 +9,49 @@
 <body>
   <div class="main-container">
     <div class="header-section">
-      <div id="message"></div>
+      <div class="app-header">
+        <div class="app-title-row">
+          <h1 class="app-title" id="app-title" style="cursor: pointer;">Review Crawler</h1>
+          <div class="header-buttons">
+            <button class="menu-btn" id="menu-btn" title="프로필">👤</button>
+            <button class="menu-btn" id="notion-link-btn" title="노션 문서">📋</button>
+          </div>
+        </div>
+        <div class="app-description-row">
+          <span class="app-description">네이버/쿠팡 상품 리뷰 수집 도구</span>
+          <span class="app-version" id="app-version">v0.4.3</span>
+        </div>
+      </div>
+      <!-- <div id="message"></div> -->
     </div>
     
     <!-- 상태 메시지 영역 -->
+    <!--
     <div class="status-message-box" id="status-message-box" style="display: none;">
       <div class="status-message-content" id="status-message-content"></div>
     </div>
+    -->
     
-    <!-- 유저 정보 바 -->
-    <div class="user-info-bar" id="user-info-bar">
-      <div class="user-info-content">
-        <div class="user-name" id="user-name">user: -</div>
-        <div class="user-ip" id="user-ip">ip: 로딩 중...</div>
-        <button class="update-check-btn" id="update-check-btn" title="업데이트 확인">🔄</button>
+    <!-- 메뉴 패널 -->
+    <div class="menu-panel" id="menu-panel" style="display: none;">
+      <div class="menu-panel-content">
+        <div class="menu-panel-item">
+          <span class="menu-panel-label">날짜:</span>
+          <span class="menu-panel-value" id="menu-app-date"></span>
+        </div>
+        <div class="menu-panel-item">
+          <span class="menu-panel-label">시간:</span>
+          <span class="menu-panel-value" id="menu-app-time"></span>
+        </div>
+        <div class="menu-panel-divider"></div>
+        <div class="menu-panel-item">
+          <span class="menu-panel-label">user:</span>
+          <span class="menu-panel-value" id="menu-user-name">-</span>
+        </div>
+        <div class="menu-panel-item">
+          <span class="menu-panel-label">ip:</span>
+          <span class="menu-panel-value" id="menu-user-ip">로딩 중...</span>
+        </div>
       </div>
     </div>
     
@@ -87,22 +116,10 @@
             <label for="open-folder" style="cursor: pointer; font-size: 12px; font-weight: 650; color: #aeb7ca;">크롤링 후 폴더 열기</label>
           </div>
         </div>
-      </div>
-      <div class="card">
-        <button class="button primary big-button" id="start-btn">수집 시작하기</button>
-        <div class="stats-box">
-          <div class="status-row">
-            <span class="status-label">예상</span>
-            <span class="status-value" id="expected-info">페이지 5 · 정렬 랭킹순 · 플랫폼 네이버</span>
-          </div>
-          <div class="status-row">
-            <span class="status-label">출력</span>
-            <span class="status-value">CSV / JSON (선택 가능)</span>
-          </div>
+        <div class="form-row" style="margin-top: 20px;">
+          <button class="button primary big-button" id="start-btn">수집 시작하기</button>
         </div>
-      </div>
-      <div class="card">
-        <div class="log-box" id="log-box">
+        <div class="log-box" id="log-box" style="margin-top: 20px;">
           <div class="log-line waiting">[대기] 상품 URL 입력을 기다리는 중…</div>
           <div class="log-line">[정보] 플랫폼: 네이버</div>
           <div class="log-line">[정보] 정렬: 랭킹순</div>

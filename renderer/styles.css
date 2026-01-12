@@ -3,6 +3,8 @@
 @import url('./styles/modules/layout.css');
 @import url('./styles/modules/status-message.css');
 @import url('./styles/modules/user-info.css');
+@import url('./styles/modules/menu-button.css');
+@import url('./styles/modules/menu-panel.css');
 @import url('./styles/modules/cards.css');
 @import url('./styles/modules/forms.css');
 @import url('./styles/modules/dropdown.css');

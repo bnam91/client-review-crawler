@@ -1,46 +1,107 @@
 /* User Info Bar Styles */
-.user-info-bar {
+.user-info-row {
   position: absolute;
-  top: 50px;
-  right: 10px;
+  top: 20px;
+  left: 50%;
+  transform: translateX(-50%);
   z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 8px;
   pointer-events: none;
+  -webkit-app-region: drag; /* 유저 정보 바는 드래그 가능 */
+}
+
+.user-info-bar {
+  pointer-events: none;
+  -webkit-app-region: drag; /* user-info-bar는 드래그 가능 */
 }
 
 .user-info-content {
   display: flex;
   flex-direction: row;
   align-items: center;
-  gap: 12px;
-  color: #8a94a8;
-  font-size: 12px;
-  font-weight: 400;
+  flex-wrap: nowrap;
+  gap: 8px;
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 11px;
+  font-weight: 500;
+  padding: 6px 12px;
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 8px;
+  backdrop-filter: blur(10px);
+  border: 0.5px solid rgba(255, 255, 255, 0.08);
+  white-space: nowrap;
 }
 
+.user-name,
+.user-ip {
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.1px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.user-info-content > *:not(:last-child):not(.info-btn):not(.update-check-btn)::after {
+  content: '·';
+  margin: 0 6px;
+  color: rgba(255, 255, 255, 0.25);
+  font-weight: 300;
+}
+
+.app-date,
+.app-time {
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.3px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.app-date {
+  letter-spacing: 0.1px;
+}
+
+.user-info-buttons {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  pointer-events: none;
+  -webkit-app-region: no-drag; /* 버튼 영역은 드래그 불가 */
+}
+
+.info-btn,
 .update-check-btn {
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.06);
+  border: 0.5px solid rgba(255, 255, 255, 0.1);
   border-radius: 6px;
-  color: rgba(231, 234, 240, 0.78);
-  font-size: 14px;
-  width: 24px;
-  height: 24px;
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 12px;
+  width: 22px;
+  height: 22px;
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
   pointer-events: auto;
-  transition: all 0.2s;
+  -webkit-app-region: no-drag; /* 버튼은 드래그 불가 */
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
   padding: 0;
   line-height: 1;
 }
 
+.info-btn:hover,
 .update-check-btn:hover {
   background: rgba(255, 255, 255, 0.1);
-  color: #e7eaf0;
-  border-color: rgba(255, 255, 255, 0.2);
+  color: rgba(255, 255, 255, 0.8);
+  border-color: rgba(255, 255, 255, 0.15);
+  transform: scale(1.05);
 }
 
+.info-btn:active,
 .update-check-btn:active {
   transform: scale(0.95);
 }

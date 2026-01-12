@@ -73,6 +73,19 @@ try {
     getConfig: () => {
       return config;
     },
+    
+    // 외부 URL 열기
+    openExternalUrl: async (url) => {
+      console.log('[Preload] openExternalUrl called with URL:', url);
+      try {
+        const result = await ipcRenderer.invoke('open-external-url', url);
+        console.log('[Preload] openExternalUrl result:', result);
+        return result;
+      } catch (error) {
+        console.error('[Preload] openExternalUrl error:', error);
+        throw error;
+      }
+    },
   });
   console.log('[Preload] electronAPI exposed successfully');
 } catch (error) {

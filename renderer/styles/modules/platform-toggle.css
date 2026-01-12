@@ -13,6 +13,7 @@
   cursor: pointer;
   transition: all 0.2s;
   min-width: 70px;
+  -webkit-app-region: no-drag; /* 플랫폼 토글 버튼은 드래그 불가 */
 }
 
 .platform-toggle-btn:hover {

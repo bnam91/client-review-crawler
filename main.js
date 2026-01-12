@@ -219,6 +219,22 @@ app.whenReady().then(() => {
   ipcMain.on('install-update', () => {
     autoUpdater.quitAndInstall();
   });
+
+  // 외부 URL 열기 핸들러
+  ipcMain.handle('open-external-url', async (event, url) => {
+    console.log('[Main] open-external-url IPC handler called with URL:', url);
+    try {
+      await shell.openExternal(url);
+      console.log('[Main] External URL opened successfully:', url);
+      return { success: true };
+    } catch (error) {
+      console.error('[Main] Open external URL error:', error);
+      return {
+        success: false,
+        error: error.message || 'URL을 열 수 없습니다.',
+      };
+    }
+  });
   
   console.log('[Main] IPC handlers registered');
 
