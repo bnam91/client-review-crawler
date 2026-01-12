@@ -87,16 +87,28 @@ export async function extractAllQnAs(page, excludeSecret = false) {
     for (let i = 0; i < qnaList.length; i++) {
       const qna = qnaList[i];
       
-      // 답변완료 상태인 것만 처리
-      if (qna.answerStatus !== '답변완료') {
-        console.log(`[NaverQnAExtractor] Q&A ${i + 1}: 답변완료가 아니므로 건너뜁니다.`);
-        continue;
-      }
+      // 비밀글 여부 확인
+      const isSecret = qna.isSecret;
       
-      // 비밀글은 건너뛰기
-      if (qna.isSecret) {
-        console.log(`[NaverQnAExtractor] Q&A ${i + 1}: 비밀글이므로 건너뜁니다.`);
-        continue;
+      // 비밀글인 경우 클릭하지 않고 기본 정보만 저장
+      if (isSecret) {
+        console.log(`[NaverQnAExtractor] Q&A ${i + 1}: 비밀글입니다. 클릭하지 않고 기본 정보만 저장합니다. (작성자: ${qna.author}, 작성일: ${qna.date})`);
+        
+        const qnaData = {
+          answerStatus: qna.answerStatus,
+          title: qna.title,
+          author: qna.author,
+          date: qna.date,
+          question: '비밀글입니다.',
+          answer: '',
+          answerAuthor: '',
+          answerDate: '',
+          isSecret: true
+        };
+        
+        allQnAs.push(qnaData);
+        console.log(`[NaverQnAExtractor] Q&A ${i + 1}: 비밀글 기본 정보 저장 완료`);
+        continue; // 비밀글은 클릭하지 않고 다음 항목으로
       }
       
       try {
@@ -179,10 +191,11 @@ export async function extractAllQnAs(page, excludeSecret = false) {
             title: qna.title,
             author: qna.author,
             date: qna.date,
-            question: detail.question,
-            answer: detail.answer,
-            answerAuthor: detail.answerAuthor,
-            answerDate: detail.answerDate
+            question: detail.question || qna.title || '',
+            answer: detail.answer || '',
+            answerAuthor: detail.answerAuthor || '',
+            answerDate: detail.answerDate || '',
+            isSecret: false
           };
           
           allQnAs.push(qnaData);
@@ -192,10 +205,10 @@ export async function extractAllQnAs(page, excludeSecret = false) {
           console.log(`  - 제목: ${qna.title}`);
           console.log(`  - 작성자: ${qna.author}`);
           console.log(`  - 작성일: ${qna.date}`);
-          console.log(`  - 질문 내용: ${detail.question}`);
-          console.log(`  - 답변 내용: ${detail.answer}`);
-          console.log(`  - 답변 작성자: ${detail.answerAuthor}`);
-          console.log(`  - 답변 작성일: ${detail.answerDate}`);
+          console.log(`  - 질문 내용: ${detail.question || qna.title || ''}`);
+          console.log(`  - 답변 내용: ${detail.answer || '(없음)'}`);
+          console.log(`  - 답변 작성자: ${detail.answerAuthor || '(없음)'}`);
+          console.log(`  - 답변 작성일: ${detail.answerDate || '(없음)'}`);
         } else {
           console.log(`[NaverQnAExtractor] Q&A ${i + 1}: 상세 내용을 추출할 수 없습니다.`);
         }

@@ -13,6 +13,22 @@ import https from 'https';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
+// sharp 라이브러리 경로 설정 (빌드된 앱에서 필요)
+// 앱이 시작되기 전에 라이브러리 경로를 설정해야 함
+if (!process.env.NODE_ENV || process.env.NODE_ENV !== 'development') {
+  if (process.platform === 'darwin') {
+    const libvipsPathArm64 = join(__dirname, 'node_modules', '@img', 'sharp-libvips-darwin-arm64', 'lib');
+    const libvipsPathX64 = join(__dirname, 'node_modules', '@img', 'sharp-libvips-darwin-x64', 'lib');
+    
+    // DYLD_LIBRARY_PATH에 추가 (macOS)
+    const currentLibPath = process.env.DYLD_LIBRARY_PATH || '';
+    const newLibPath = [libvipsPathArm64, libvipsPathX64, currentLibPath].filter(Boolean).join(':');
+    process.env.DYLD_LIBRARY_PATH = newLibPath;
+    
+    console.log('[Sharp] 라이브러리 경로 설정:', newLibPath);
+  }
+}
+
 let mainWindow;
 let devTools = null;
 const isDev = process.env.NODE_ENV === 'development';

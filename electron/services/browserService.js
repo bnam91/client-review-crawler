@@ -124,7 +124,11 @@ export async function openUrlInBrowser(input, platform = 0, collectionType = 0, 
     console.log('[BrowserService] Input:', input);
     console.log('[BrowserService] Platform:', platform === 0 ? '네이버' : '쿠팡');
     console.log('[BrowserService] CollectionType:', collectionType === 0 ? '리뷰 수집' : 'Q&A 수집');
-    console.log('[BrowserService] Sort:', sort === 0 ? '랭킹순' : sort === 1 ? '최신순' : '평점낮은순');
+    if (collectionType === 0) {
+      console.log('[BrowserService] Sort:', sort === 0 ? '랭킹순' : sort === 1 ? '최신순' : '평점낮은순');
+    } else {
+      console.log('[BrowserService] 비밀글 제외:', excludeSecret ? '예' : '아니오');
+    }
     console.log('[BrowserService] SavePath:', savePath || '(지정되지 않음)');
     
     // pages 값을 실제 페이지 수로 변환하여 출력

@@ -4,7 +4,7 @@
  */
 import { loadConfig } from './common.js';
 import { saveReviewsToJson } from './jsonStorage.js';
-import { saveReviewsToExcel } from './excelStorage.js';
+import { saveReviewsToExcel, saveQnAToExcel } from './excelStorage.js';
 import { saveReviewsToMongoDB } from './mongodbStorage.js';
 
 // 공통 함수들도 export
@@ -20,7 +20,7 @@ export { removeDuplicateReviews } from './common.js';
  */
 export async function saveReviewsToExcelChunk(reviews, filename = 'reviews', userSavePath = '', chunkNumber = 1) {
   try {
-    const config = loadConfig();
+    const config = await loadConfig();
     const storageConfig = config.storage || {};
     
     if (!storageConfig.excel || storageConfig.excel.enabled !== 1) {
@@ -52,7 +52,7 @@ export async function saveReviews(reviews, filename = 'reviews', userSavePath = 
   const savedPaths = [];
   
   try {
-    const config = loadConfig();
+    const config = await loadConfig();
     const storageConfig = config.storage || {};
     
     // 저장 경로 결정: 사용자가 선택한 경로가 있으면 우선 사용, 없으면 config의 path 사용
@@ -74,8 +74,24 @@ export async function saveReviews(reviews, filename = 'reviews', userSavePath = 
       }
     }
     
-    // Excel 저장 (청크로 저장되지 않은 경우에만, 일반적으로는 청크로 저장됨)
-    // 이 함수는 JSON 저장용으로 주로 사용되므로 Excel은 제외
+    // Excel 저장 (QnA 데이터인 경우)
+    // QnA 데이터는 threadId, messages 구조를 가지고 있음
+    const isQnAData = reviews.length > 0 && reviews[0] && (reviews[0].threadId !== undefined || reviews[0].messages !== undefined);
+    
+    if (isQnAData && storageConfig.excel && storageConfig.excel.enabled === 1) {
+      try {
+        const excelPathToUse = finalSavePath || storageConfig.excel.path || '';
+        console.log(`[ReviewStorage] QnA Excel 저장 경로: ${excelPathToUse || '(기본 results 폴더)'}`);
+        const excelPath = await saveQnAToExcel(reviews, filename, excelPathToUse);
+        if (excelPath) {
+          savedPaths.push(excelPath);
+        }
+      } catch (error) {
+        console.error(`[ReviewStorage] QnA Excel 저장 중 오류: ${error.message}`);
+      }
+    }
+    
+    // 리뷰 데이터의 Excel 저장은 청크로 저장되지 않은 경우에만, 일반적으로는 청크로 저장됨
     // Excel은 naverService.js에서 청크 단위로 직접 저장됨
     
     // MongoDB 저장

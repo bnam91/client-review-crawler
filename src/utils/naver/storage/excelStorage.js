@@ -211,3 +211,111 @@ export async function saveReviewsToExcel(reviews, filename = 'reviews', customPa
     throw error;
   }
 }
+
+/**
+ * QnA 데이터를 Excel 파일로 저장 (메시지 단위로 행 생성)
+ * @param {Array<object>} qnaList - QnA 데이터 배열 (formatQnAData로 변환된 형식)
+ * @param {string} filename - 저장할 파일명 (확장자 제외)
+ * @param {string} customPath - 저장 경로 (선택)
+ * @returns {Promise<string>} 저장된 파일 경로
+ */
+export async function saveQnAToExcel(qnaList, filename = 'naver_qna', customPath = '') {
+  try {
+    const storageDir = getStorageDirectory(customPath);
+    
+    console.log(`[ExcelStorage] QnA 저장 디렉토리: ${storageDir}`);
+    
+    // 저장 폴더가 없으면 생성
+    try {
+      await mkdir(storageDir, { recursive: true });
+      console.log(`[ExcelStorage] 저장 폴더 생성/확인: ${storageDir}`);
+    } catch (error) {
+      if (error.code !== 'EEXIST') {
+        throw error;
+      }
+    }
+    
+    if (!qnaList || qnaList.length === 0) {
+      console.log(`[ExcelStorage] ⚠️ 저장할 QnA가 없습니다.`);
+      return null;
+    }
+    
+    // ExcelJS 워크북 생성
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet('QnA');
+    
+    // 컬럼 정의
+    const columns = [
+      { header: 'threadId', key: 'threadId', width: 20 },
+      { header: '유형', key: 'type', width: 12 },
+      { header: '역할', key: 'role', width: 12 },
+      { header: '작성자', key: 'author', width: 20 },
+      { header: '작성일', key: 'date', width: 15 },
+      { header: '내용', key: 'content', width: 80 }
+    ];
+    
+    worksheet.columns = columns;
+    
+    // 헤더 스타일 설정
+    worksheet.getRow(1).font = { bold: true };
+    worksheet.getRow(1).alignment = { vertical: 'middle', horizontal: 'center' };
+    
+    // QnA 데이터를 메시지 단위로 행으로 변환
+    let rowCount = 0;
+    
+    for (const qna of qnaList) {
+      const threadId = qna.threadId || '';
+      
+      // messages 배열의 각 메시지를 행으로 추가
+      if (Array.isArray(qna.messages) && qna.messages.length > 0) {
+        for (const message of qna.messages) {
+          const row = worksheet.addRow({
+            threadId: threadId,
+            type: message.type || '',
+            role: message.role || '',
+            author: message.author || '',
+            date: message.date || '',
+            content: message.content || ''
+          });
+          
+          // 행 높이 설정 (내용에 따라 자동 조정)
+          row.height = 60;
+          
+          // 셀 스타일 설정
+          row.alignment = { vertical: 'top', wrapText: true };
+          
+          rowCount++;
+        }
+      } else {
+        // messages가 없는 경우에도 기본 정보라도 저장
+        const row = worksheet.addRow({
+          threadId: threadId,
+          type: '',
+          role: '',
+          author: '',
+          date: '',
+          content: ''
+        });
+        
+        row.height = 60;
+        row.alignment = { vertical: 'top', wrapText: true };
+        rowCount++;
+      }
+    }
+    
+    // 파일명 결정
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
+    const filepath = join(storageDir, `${filename}_${timestamp}.xlsx`);
+    
+    // Excel 파일로 저장
+    await workbook.xlsx.writeFile(filepath);
+    
+    console.log(`[ExcelStorage] ✅ QnA Excel 저장 완료: ${filepath}`);
+    console.log(`[ExcelStorage] 저장된 메시지 수: ${rowCount}개 (QnA ${qnaList.length}개)`);
+    
+    return filepath;
+  } catch (error) {
+    console.error(`[ExcelStorage] ❌ QnA Excel 저장 실패: ${error.message}`);
+    throw error;
+  }
+}

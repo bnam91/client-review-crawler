@@ -7,8 +7,9 @@
   "scripts": {
     "start": "electron .",
     "dev": "NODE_ENV=development electron .",
+    "postinstall": "electron-rebuild -f -w sharp",
     "build": "electron-builder",
-    "build:mac": "electron-builder --mac",
+    "build:mac": "electron-builder --mac && node scripts/fix-sharp-rpath.js dist/mac-arm64/review-crawler.app && node scripts/fix-sharp-rpath.js dist/mac/review-crawler.app",
     "build:win": "electron-builder --win",
     "build:linux": "electron-builder --linux",
     "build:all": "electron-builder --mac --win --linux",
@@ -24,7 +25,6 @@
     "url": "https://github.com/bnam91/client-review-crawler.git"
   },
   "dependencies": {
-    "electron": "^28.0.0",
     "electron-log": "^5.4.3",
     "electron-updater": "^6.7.3",
     "exceljs": "^4.4.0",
@@ -33,6 +33,7 @@
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
+    "electron": "^28.0.0",
     "electron-builder": "^24.9.1"
   },
   "build": {
@@ -46,11 +47,24 @@
     "files": [
       "main.js",
       "preload.mjs",
+      "config.js",
       "renderer/**/*",
       "electron/**/*",
       "src/**/*",
       "package.json"
     ],
+    "asarUnpack": [
+      "node_modules/sharp/**/*",
+      "node_modules/@img/sharp-*/**/*",
+      "node_modules/@img/sharp-libvips-*/**/*",
+      "node_modules/detect-libc/**/*",
+      "node_modules/semver/**/*",
+      "node_modules/@img/colour/**/*",
+      "node_modules/electron-updater/**/*",
+      "node_modules/electron-log/**/*"
+    ],
+    "npmRebuild": true,
+    "buildDependenciesFromSource": true,
     "mac": {
       "category": "public.app-category.utilities",
       "target": [

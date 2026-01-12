@@ -102,39 +102,45 @@ export async function waitForProductPageToLoad(page, expectedBaseUrl, maxWaitSec
       }
       
       // 정상 로딩 요소 확인
-      const hasValidElements = await page.evaluate(() => {
+      const validElementsInfo = await page.evaluate(() => {
         // 상품 정보 컨테이너 확인 (.P2lBbUWPNi)
         const productContainer = document.querySelector('.P2lBbUWPNi');
         if (!productContainer) {
-          return false;
+          return { valid: false, reason: '상품 정보 컨테이너를 찾을 수 없습니다' };
         }
         
         // 제목 확인 (h3.DCVBehA8ZB)
         const titleElement = productContainer.querySelector('h3.DCVBehA8ZB');
         if (!titleElement) {
-          return false;
+          return { valid: false, reason: '상품 제목을 찾을 수 없습니다' };
         }
         
         const titleText = titleElement.textContent || '';
         if (!titleText || titleText.trim().length === 0) {
-          return false;
+          return { valid: false, reason: '상품 제목이 비어있습니다' };
         }
         
         // 가격 확인 (숫자와 "원"이 포함된 가격 표시)
         const priceElement = productContainer.querySelector('.Xu9MEKUuIo');
         if (!priceElement) {
-          return false;
+          return { valid: false, reason: '상품 가격을 찾을 수 없습니다' };
         }
         
         const priceText = priceElement.textContent || '';
         // 가격이 숫자와 "원"을 포함하는지 확인
         const hasPrice = /\d+/.test(priceText) && priceText.includes('원');
         
-        return hasPrice;
+        if (!hasPrice) {
+          return { valid: false, reason: '상품 가격이 올바르게 표시되지 않았습니다', title: titleText, price: priceText };
+        }
+        
+        return { valid: true, title: titleText, price: priceText };
       });
       
-      if (hasValidElements) {
+      if (validElementsInfo.valid) {
         console.log('[NaverProductPageUtil] ✅ 정상 로딩 요소가 나타났습니다.');
+        console.log(`[NaverProductPageUtil]   - 상품 제목: ${validElementsInfo.title}`);
+        console.log(`[NaverProductPageUtil]   - 상품 가격: ${validElementsInfo.price}`);
         return {
           success: true
         };

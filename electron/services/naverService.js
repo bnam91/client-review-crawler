@@ -7,8 +7,10 @@ import { clickReviewOrQnATab } from './naver/naverTabActions.js';
 import { extractAllReviews } from './naver/naverReviewExtractor.js';
 import { extractAllQnAs } from './naver/naverQnAExtractor.js';
 import { navigateToNextPage, hasNextPage } from './naver/naverPagination.js';
+import { navigateToNextQnAPage, hasNextQnAPage } from './naver/naverQnAPagination.js';
 import { saveReviews, saveReviewsToExcelChunk } from '../../src/utils/naver/storage/index.js';
 import { getStorageDirectory } from '../../src/utils/naver/storage/common.js';
+import { formatQnAData } from '../../src/utils/naver/storage/qnaFormatter.js';
 
 /**
  * pages 값을 실제 페이지 수로 변환
@@ -107,18 +109,48 @@ export async function handleNaver(browser, page, input, isUrl, collectionType = 
       const CHUNK_SIZE = 50; // 50페이지마다 청크 저장
       let finalSavePath = null; // 저장 경로 초기화
       
-      // Q&A 수집일 때 Q&A 추출
+      // Q&A 수집일 때 Q&A 추출 (여러 페이지)
       if (collectionType === 1) {
-        console.log(`[NaverService] Q&A 추출 시작...`);
+        const maxPages = getMaxPages(pages, customPages);
+        console.log(`[NaverService] Q&A 추출 시작... (최대 ${maxPages === Infinity ? '무제한' : maxPages}페이지)`);
         
-        // Q&A 추출
-        const allQnAs = await extractAllQnAs(newPage, excludeSecret);
+        let allQnAs = [];
+        let currentPage = 1;
         
-        // Q&A 데이터 JSON 저장
+        while (currentPage <= maxPages) {
+          console.log(`[NaverService] 📄 Q&A 페이지 ${currentPage} 크롤링 중...`);
+          const pageQnAs = await extractAllQnAs(newPage, excludeSecret);
+          allQnAs = allQnAs.concat(pageQnAs);
+          console.log(`[NaverService] ✅ 페이지 ${currentPage}: ${pageQnAs.length}개 Q&A 추출 (누적: ${allQnAs.length}개)`);
+          
+          // 마지막 페이지가 아니고 다음 페이지가 있으면 이동
+          if (currentPage < maxPages) {
+            const hasNext = await hasNextQnAPage(newPage);
+            if (!hasNext) {
+              console.log(`[NaverService] ⚠️ 다음 페이지가 없어 크롤링을 종료합니다.`);
+              break;
+            }
+            
+            const nextPageSuccess = await navigateToNextQnAPage(newPage, currentPage + 1);
+            if (!nextPageSuccess) {
+              console.log(`[NaverService] ⚠️ 페이지 ${currentPage + 1}로 이동 실패. 크롤링을 종료합니다.`);
+              break;
+            }
+          }
+          
+          currentPage++;
+        }
+        
+        console.log(`[NaverService] ✅ 총 ${allQnAs.length}개의 Q&A를 추출했습니다.`);
+        
+        // Q&A 데이터 저장
         if (allQnAs.length > 0) {
           try {
-            console.log(`[NaverService] 📁 Q&A 데이터 저장 시작... (${allQnAs.length}개)`);
-            const savedPaths = await saveReviews(allQnAs, 'naver_qna', savePath);
+            // Q&A 데이터를 새로운 형식으로 변환
+            console.log(`[NaverService] 🔄 Q&A 데이터 형식 변환 중...`);
+            const formattedQnAs = formatQnAData(allQnAs);
+            console.log(`[NaverService] 📁 Q&A 데이터 저장 시작... (${formattedQnAs.length}개)`);
+            const savedPaths = await saveReviews(formattedQnAs, 'naver_qna', savePath);
             if (savedPaths.length > 0) {
               console.log(`[NaverService] 📁 Q&A 데이터 저장 완료: ${savedPaths.join(', ')}`);
               finalSavePath = getStorageDirectory(savePath);
@@ -296,18 +328,48 @@ export async function handleNaver(browser, page, input, isUrl, collectionType = 
       const CHUNK_SIZE = 50; // 50페이지마다 청크 저장
       let finalSavePath = null; // 저장 경로 초기화
       
-      // Q&A 수집일 때 Q&A 추출
+      // Q&A 수집일 때 Q&A 추출 (여러 페이지)
       if (collectionType === 1) {
-        console.log(`[NaverService] Q&A 추출 시작...`);
+        const maxPages = getMaxPages(pages, customPages);
+        console.log(`[NaverService] Q&A 추출 시작... (최대 ${maxPages === Infinity ? '무제한' : maxPages}페이지)`);
         
-        // Q&A 추출
-        const allQnAs = await extractAllQnAs(productPage, excludeSecret);
+        let allQnAs = [];
+        let currentPage = 1;
         
-        // Q&A 데이터 JSON 저장
+        while (currentPage <= maxPages) {
+          console.log(`[NaverService] 📄 Q&A 페이지 ${currentPage} 크롤링 중...`);
+          const pageQnAs = await extractAllQnAs(productPage, excludeSecret);
+          allQnAs = allQnAs.concat(pageQnAs);
+          console.log(`[NaverService] ✅ 페이지 ${currentPage}: ${pageQnAs.length}개 Q&A 추출 (누적: ${allQnAs.length}개)`);
+          
+          // 마지막 페이지가 아니고 다음 페이지가 있으면 이동
+          if (currentPage < maxPages) {
+            const hasNext = await hasNextQnAPage(productPage);
+            if (!hasNext) {
+              console.log(`[NaverService] ⚠️ 다음 페이지가 없어 크롤링을 종료합니다.`);
+              break;
+            }
+            
+            const nextPageSuccess = await navigateToNextQnAPage(productPage, currentPage + 1);
+            if (!nextPageSuccess) {
+              console.log(`[NaverService] ⚠️ 페이지 ${currentPage + 1}로 이동 실패. 크롤링을 종료합니다.`);
+              break;
+            }
+          }
+          
+          currentPage++;
+        }
+        
+        console.log(`[NaverService] ✅ 총 ${allQnAs.length}개의 Q&A를 추출했습니다.`);
+        
+        // Q&A 데이터 저장
         if (allQnAs.length > 0) {
           try {
-            console.log(`[NaverService] 📁 Q&A 데이터 저장 시작... (${allQnAs.length}개)`);
-            const savedPaths = await saveReviews(allQnAs, 'naver_qna', savePath);
+            // Q&A 데이터를 새로운 형식으로 변환
+            console.log(`[NaverService] 🔄 Q&A 데이터 형식 변환 중...`);
+            const formattedQnAs = formatQnAData(allQnAs);
+            console.log(`[NaverService] 📁 Q&A 데이터 저장 시작... (${formattedQnAs.length}개)`);
+            const savedPaths = await saveReviews(formattedQnAs, 'naver_qna', savePath);
             if (savedPaths.length > 0) {
               console.log(`[NaverService] 📁 Q&A 데이터 저장 완료: ${savedPaths.join(', ')}`);
               finalSavePath = getStorageDirectory(savePath);
