@@ -1,5 +1,20 @@
 import { contextBridge, ipcRenderer } from 'electron';
+import { readFileSync } from 'fs';
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
 import { config } from './config.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+
+// package.json에서 버전 정보 읽기
+let appVersion = 'v0.4.3';
+try {
+  const packageJson = JSON.parse(readFileSync(join(__dirname, 'package.json'), 'utf-8'));
+  appVersion = `v${packageJson.version}`;
+} catch (error) {
+  console.error('[Preload] 버전 정보 읽기 실패:', error);
+}
 
 console.log('[Preload] Preload script loaded');
 
@@ -72,6 +87,11 @@ try {
     // config 가져오기
     getConfig: () => {
       return config;
+    },
+    
+    // 앱 버전 가져오기
+    getVersion: () => {
+      return appVersion;
     },
     
     // 외부 URL 열기

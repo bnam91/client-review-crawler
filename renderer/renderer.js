@@ -700,6 +700,17 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
   
+  // 버전 정보 업데이트
+  const appVersionElement = document.getElementById('app-version');
+  if (appVersionElement && window.electronAPI && window.electronAPI.getVersion) {
+    try {
+      const version = window.electronAPI.getVersion();
+      appVersionElement.textContent = version;
+    } catch (error) {
+      console.error('[Renderer] 버전 정보 가져오기 실패:', error);
+    }
+  }
+  
   // 초기화
   updateExpected();
   updateLog();
