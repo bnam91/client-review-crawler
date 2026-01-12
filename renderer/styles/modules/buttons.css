@@ -49,7 +49,8 @@ button:hover {
 }
 
 .button.primary {
-  background: #2b76ff;
+  background: linear-gradient(135deg, #2b76ff 0%, #3d85ff 50%, #2b76ff 100%);
+  background-size: 200% 200%;
   border-color: rgba(255, 255, 255, 0.14);
   color: #ffffff;
   box-shadow: 0 8px 18px rgba(43, 118, 255, 0.35);
@@ -59,11 +60,51 @@ button:hover {
   border-radius: 12px;
   cursor: pointer;
   transition: all 0.2s;
+  animation: buttonGlow 3s ease-in-out infinite, buttonGradient 8s ease infinite, buttonShake 6s ease-in-out infinite;
+  position: relative;
+}
+
+@keyframes buttonGlow {
+  0%, 100% {
+    box-shadow: 0 8px 18px rgba(43, 118, 255, 0.35);
+  }
+  50% {
+    box-shadow: 0 8px 24px rgba(43, 118, 255, 0.5);
+  }
+}
+
+@keyframes buttonGradient {
+  0% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
+}
+
+@keyframes buttonShake {
+  0%, 100% {
+    transform: translateX(0) translateY(0) rotate(0deg);
+  }
+  25% {
+    transform: translateX(0.5px) translateY(-0.3px) rotate(0.2deg);
+  }
+  50% {
+    transform: translateX(-0.3px) translateY(0.4px) rotate(-0.15deg);
+  }
+  75% {
+    transform: translateX(0.4px) translateY(0.2px) rotate(0.1deg);
+  }
 }
 
 .button.primary:hover {
-  background: #3d85ff;
+  background: linear-gradient(135deg, #3d85ff 0%, #4d95ff 50%, #3d85ff 100%);
+  background-size: 200% 200%;
   box-shadow: 0 10px 20px rgba(43, 118, 255, 0.45);
+  animation: buttonGlow 2s ease-in-out infinite, buttonGradient 6s ease infinite, buttonShake 4s ease-in-out infinite;
 }
 
 .big-button {

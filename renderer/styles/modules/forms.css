@@ -29,12 +29,25 @@
   font-weight: 650;
   transition: all 0.2s;
   -webkit-app-region: no-drag; /* 입력 필드는 드래그 불가 */
+  animation: inputPulse 5s ease-in-out infinite;
+}
+
+@keyframes inputPulse {
+  0%, 100% {
+    border-color: rgba(255, 255, 255, 0.10);
+    background: #0c0f17;
+  }
+  50% {
+    border-color: rgba(255, 255, 255, 0.12);
+    background: #0d1018;
+  }
 }
 
 .input-box:focus {
   outline: none;
   border-color: rgba(255, 255, 255, 0.20);
   background: #0f1218;
+  animation: none;
 }
 
 .input-box::placeholder {
