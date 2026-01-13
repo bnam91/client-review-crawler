@@ -108,8 +108,9 @@ function isUrl(input) {
  * @param {string} savePath - 저장 경로 (선택)
  * @param {boolean} openFolder - 크롤링 완료 후 폴더 열기 여부
  * @param {boolean} excludeSecret - 비밀글 제외 여부 (Q&A 수집일 때만 사용)
+ * @param {object} webContents - Electron webContents 객체 (로그 전송용)
  */
-export async function openUrlInBrowser(input, platform = 0, collectionType = 0, sort = 0, pages = 0, customPages = null, savePath = '', openFolder = false, excludeSecret = false) {
+export async function openUrlInBrowser(input, platform = 0, collectionType = 0, sort = 0, pages = 0, customPages = null, savePath = '', openFolder = false, excludeSecret = false, webContents = null) {
   let browser = null;
   
   try {
@@ -265,7 +266,7 @@ export async function openUrlInBrowser(input, platform = 0, collectionType = 0, 
       result = await handleCoupang(browser, page, input, inputIsUrl);
     } else {
       // 네이버 플랫폼 처리 (기본값)
-      result = await handleNaver(browser, page, input, inputIsUrl, collectionType, sort, pages, customPages, savePath, excludeSecret);
+      result = await handleNaver(browser, page, input, inputIsUrl, collectionType, sort, pages, customPages, savePath, excludeSecret, webContents);
     }
     
     // 크롤링 완료 후 폴더 열기

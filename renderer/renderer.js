@@ -401,7 +401,8 @@ document.addEventListener('DOMContentLoaded', () => {
       addLog('[시작] 리뷰 수집을 시작합니다...', 'waiting');
       showStatusMessage('리뷰 수집을 시작합니다...', 'info');
       startBtn.disabled = true;
-      startBtn.textContent = '수집 중...';
+      startBtn.classList.add('loading');
+      startBtn.innerHTML = '<span class="loading-spinner"></span> 수집 중...';
       
       // 브라우저에서 URL 열기 (플랫폼 정보 포함)
       if (window.electronAPI && window.electronAPI.openUrlInBrowser) {
@@ -442,6 +443,7 @@ document.addEventListener('DOMContentLoaded', () => {
           if (!savePath || savePath === '') {
             showModal('저장 경로를 반드시 선택해주세요.');
             startBtn.disabled = false;
+            startBtn.classList.remove('loading');
             startBtn.textContent = '수집 시작하기';
             return;
           }
@@ -465,20 +467,33 @@ document.addEventListener('DOMContentLoaded', () => {
             addLog(`[브라우저] 브라우저에서 URL을 열었습니다.`);
             showStatusMessage('브라우저에서 URL을 열었습니다.', 'success');
           } else {
-            addLog(`[오류] 브라우저 열기 실패: ${result.error || '알 수 없는 오류'}`);
-            showStatusMessage(`브라우저 열기 실패: ${result.error || '알 수 없는 오류'}`, 'error');
-            showModal(`브라우저 열기 실패: ${result.error || '알 수 없는 오류'}`);
+            const errorMessage = result.error || '알 수 없는 오류';
+            addLog(`[오류] 브라우저 열기 실패: ${errorMessage}`);
+            showStatusMessage(`브라우저 열기 실패: ${errorMessage}`, 'error');
+            // 캡챠 관련 에러는 모달을 띄우지 않음 (로그 박스에만 표시)
+            if (!errorMessage.includes('캡챠')) {
+              showModal(`브라우저 열기 실패: ${errorMessage}`);
+            }
+            startBtn.disabled = false;
+            startBtn.classList.remove('loading');
+            startBtn.textContent = '수집 시작하기';
           }
         } catch (error) {
           console.error('[Renderer] 브라우저 열기 오류:', error);
           addLog(`[오류] 브라우저 열기 중 오류가 발생했습니다.`);
           showStatusMessage(`브라우저 열기 중 오류가 발생했습니다: ${error.message}`, 'error');
           showModal(`브라우저 열기 중 오류가 발생했습니다: ${error.message}`);
+          startBtn.disabled = false;
+          startBtn.classList.remove('loading');
+          startBtn.textContent = '수집 시작하기';
         }
       } else {
         addLog('[오류] 브라우저 API를 사용할 수 없습니다.');
         showStatusMessage('브라우저 API를 사용할 수 없습니다.', 'error');
         showModal('브라우저 API를 사용할 수 없습니다.');
+        startBtn.disabled = false;
+        startBtn.classList.remove('loading');
+        startBtn.textContent = '수집 시작하기';
       }
       
       // 시뮬레이션 (실제로는 크롤링 로직 실행)
@@ -486,6 +501,7 @@ document.addEventListener('DOMContentLoaded', () => {
         addLog('[완료] 리뷰 수집이 완료되었습니다.');
         showStatusMessage('리뷰 수집이 완료되었습니다.', 'success');
         startBtn.disabled = false;
+        startBtn.classList.remove('loading');
         startBtn.textContent = '수집 시작하기';
       }, 2000);
     });
@@ -709,6 +725,25 @@ document.addEventListener('DOMContentLoaded', () => {
     } catch (error) {
       console.error('[Renderer] 버전 정보 가져오기 실패:', error);
     }
+  }
+  
+  // 크롤러 로그 수신
+  let lastLogLine = null; // 마지막 로그 라인 추적
+  if (window.electronAPI && window.electronAPI.onCrawlerLog) {
+    window.electronAPI.onCrawlerLog(({ message, className = '', updateLast = false }) => {
+      if (updateLast && lastLogLine) {
+        // 마지막 로그 라인 업데이트
+        lastLogLine.textContent = message;
+        lastLogLine.className = `log-line ${className}`;
+      } else {
+        // 새 로그 추가
+        addLog(message, className);
+        const logBox = document.getElementById('log-box');
+        if (logBox && logBox.lastElementChild) {
+          lastLogLine = logBox.lastElementChild;
+        }
+      }
+    });
   }
   
   // 초기화

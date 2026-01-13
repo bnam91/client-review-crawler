@@ -19,7 +19,6 @@
   cursor: pointer;
   position: relative;
   transition: all 0.2s;
-  -webkit-app-region: no-drag; /* 체크박스는 드래그 불가 */
 }
 
 .checkbox.checked {

@@ -47,17 +47,51 @@ export function isNaverProductPage(url) {
 /**
  * 사용자가 네이버 상품 페이지로 이동할 때까지 대기
  * smartstore.naver.com 또는 brand.naver.com/products/ URL을 감지하면 즉시 진행
+ * @param {object} browser - Puppeteer browser 객체
+ * @param {object} page - Puppeteer page 객체
+ * @param {function} sendLog - 로그 전송 함수 (선택)
  */
-export async function waitForNaverProductPage(browser, page) {
-  console.log('[NaverNavigation] 상품 페이지 이동 대기 중... (최대 120초)');
+export async function waitForNaverProductPage(browser, page, sendLog = null) {
+  const maxWaitSeconds = 120;
+  const startTime = Date.now();
+  let countdownInterval = null;
+  
+  const initialMessage = `[NaverNavigation] 상품 페이지 이동 대기 중... (최대 ${maxWaitSeconds}초)`;
+  console.log(initialMessage);
+  if (sendLog) {
+    sendLog(initialMessage, 'info');
+  }
+  
+  // 카운트다운 업데이트 함수
+  const updateCountdown = () => {
+    const elapsedSeconds = Math.floor((Date.now() - startTime) / 1000);
+    const remainingSeconds = Math.max(0, maxWaitSeconds - elapsedSeconds);
+    const countdownMessage = `[NaverNavigation] 상품 페이지 이동 대기 중... (${remainingSeconds}초 남음)`;
+    
+    if (sendLog && remainingSeconds > 0) {
+      sendLog(countdownMessage, 'info', true); // updateLast=true로 같은 라인 업데이트
+    }
+  };
+  
+  // 1초마다 카운트다운 업데이트
+  if (sendLog) {
+    countdownInterval = setInterval(updateCountdown, 1000);
+  }
   
   return new Promise((resolve, reject) => {
     const timeout = setTimeout(() => {
       cleanup();
+      if (countdownInterval) {
+        clearInterval(countdownInterval);
+      }
       reject(new Error('상품 페이지 이동 대기 시간(120초)이 초과되었습니다.'));
     }, 120000); // 120초 타임아웃
     
     const cleanup = () => {
+      if (countdownInterval) {
+        clearInterval(countdownInterval);
+        countdownInterval = null;
+      }
       clearTimeout(timeout);
       try {
         // Puppeteer의 Browser 객체는 EventEmitter를 상속받지만, 
@@ -90,6 +124,9 @@ export async function waitForNaverProductPage(browser, page) {
         
         if (isNaverProductPage(url)) {
           console.log('[NaverNavigation] 상품 페이지 감지:', url);
+          if (sendLog) {
+            sendLog('[NaverNavigation] ✅ 상품 페이지 이동 완료', 'success', true);
+          }
           cleanup();
           resolve({ url, page: page });
         }
@@ -111,6 +148,9 @@ export async function waitForNaverProductPage(browser, page) {
               
               if (isNaverProductPage(frameUrl)) {
                 console.log('[NaverNavigation] 새 탭에서 상품 페이지 감지:', frameUrl);
+                if (sendLog) {
+                  sendLog('[NaverNavigation] ✅ 상품 페이지 이동 완료', 'success', true);
+                }
                 cleanup();
                 await newPage.bringToFront();
                 resolve({ url: frameUrl, page: newPage });
@@ -129,6 +169,9 @@ export async function waitForNaverProductPage(browser, page) {
             
             if (isNaverProductPage(url)) {
               console.log('[NaverNavigation] 새 탭에서 상품 페이지 감지 (초기 확인):', url);
+              if (sendLog) {
+                sendLog('[NaverNavigation] ✅ 상품 페이지 이동 완료', 'success', true);
+              }
               cleanup();
               
               // 새 페이지로 전환
@@ -152,6 +195,9 @@ export async function waitForNaverProductPage(browser, page) {
     const currentUrl = page.url();
     if (isNaverProductPage(currentUrl)) {
       console.log('[NaverNavigation] 이미 상품 페이지에 있습니다:', currentUrl);
+      if (sendLog) {
+        sendLog('[NaverNavigation] ✅ 상품 페이지 이동 완료', 'success', true);
+      }
       cleanup();
       resolve({ url: currentUrl, page: page });
     }

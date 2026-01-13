@@ -120,6 +120,39 @@ export async function loadConfig() {
   }
 }
 
+// 세션별 폴더명 캐시 (같은 크롤링 세션에서는 같은 폴더명 사용)
+let sessionFolderName = null;
+
+/**
+ * 세션별 폴더명 생성 (크롤링 시작 시 한 번만 생성)
+ * @returns {string} results_{날짜및시간} 형식의 폴더명
+ */
+function generateSessionFolderName() {
+  if (sessionFolderName) {
+    return sessionFolderName;
+  }
+  
+  // 날짜/시간 형식 생성 (YYYYMMDD_HHMMSS)
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const date = String(now.getDate()).padStart(2, '0');
+  const hours = String(now.getHours()).padStart(2, '0');
+  const minutes = String(now.getMinutes()).padStart(2, '0');
+  const seconds = String(now.getSeconds()).padStart(2, '0');
+  const dateTimeStr = `${year}${month}${date}_${hours}${minutes}${seconds}`;
+  sessionFolderName = `results_${dateTimeStr}`;
+  
+  return sessionFolderName;
+}
+
+/**
+ * 세션 폴더명 초기화 (새 크롤링 시작 시 호출)
+ */
+export function resetSessionFolderName() {
+  sessionFolderName = null;
+}
+
 /**
  * 저장 경로 결정 (config의 path가 있으면 사용, 없으면 results 폴더)
  * @param {string} customPath - 사용자가 선택한 경로 또는 config에서 지정한 경로
@@ -128,13 +161,16 @@ export async function loadConfig() {
 export function getStorageDirectory(customPath) {
   const projectRoot = join(__dirname, '../../../../..');
   
+  // 세션별 폴더명 생성 (같은 세션에서는 같은 폴더명 사용)
+  const folderName = generateSessionFolderName();
+  
   if (customPath && customPath.trim() !== '') {
-    // 사용자가 선택한 경로가 있으면, 그 경로에 results 폴더를 만들어서 저장
+    // 사용자가 선택한 경로가 있으면, 그 경로에 results_{날짜및시간} 폴더를 만들어서 저장
     const userPath = customPath.trim();
-    return join(userPath, 'results');
+    return join(userPath, folderName);
   }
   
-  // 경로가 없으면 기본 results 폴더 사용
-  return join(projectRoot, 'results');
+  // 경로가 없으면 기본 results_{날짜및시간} 폴더 사용
+  return join(projectRoot, folderName);
 }
 

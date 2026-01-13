@@ -106,6 +106,11 @@ try {
         throw error;
       }
     },
+    
+    // 크롤러 로그 수신
+    onCrawlerLog: (callback) => {
+      ipcRenderer.on('crawler-log', (event, data) => callback(data));
+    },
   });
   console.log('[Preload] electronAPI exposed successfully');
 } catch (error) {

@@ -31,12 +31,40 @@ export async function saveReviewsToJson(reviews, filename = 'reviews', customPat
     // 중복 제거
     const uniqueReviews = removeDuplicateReviews(reviews);
     
+    // 각 리뷰에 Page_Review 필드 추가 (엑셀과 동일하게)
+    const reviewsWithPageReview = uniqueReviews.map(review => {
+      // Page_Review 컬럼 값 생성 (이미지 파일명에서 페이지 정보 추출)
+      let pageReview = '';
+      if (Array.isArray(review.Photos) && review.Photos.length > 0) {
+        const firstPhoto = review.Photos[0];
+        // 파일명 형식: review_page{페이지번호}_{리뷰순서}_photo_{사진순서}.jpg
+        const match = firstPhoto.match(/review_page(\d+)_(\d+)_photo_/);
+        if (match) {
+          pageReview = `${match[1]}_${match[2]}`;
+        }
+      } else if (typeof review.Photos === 'string' && review.Photos.trim() !== '') {
+        const paths = review.Photos.split(',').map(p => p.trim()).filter(p => p);
+        if (paths.length > 0) {
+          const match = paths[0].match(/review_page(\d+)_(\d+)_photo_/);
+          if (match) {
+            pageReview = `${match[1]}_${match[2]}`;
+          }
+        }
+      }
+      
+      // Page_Review 필드를 맨 앞에 추가
+      return {
+        'Page_Review': pageReview,
+        ...review
+      };
+    });
+    
     // 파일명에 타임스탬프 추가
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
     const filepath = join(storageDir, `${filename}_${timestamp}.json`);
     
     // JSON으로 저장
-    const jsonData = JSON.stringify(uniqueReviews, null, 2);
+    const jsonData = JSON.stringify(reviewsWithPageReview, null, 2);
     await writeFile(filepath, jsonData, 'utf-8');
     
     console.log(`[JsonStorage] ✅ JSON 저장 완료: ${filepath}`);
