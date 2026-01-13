@@ -13,7 +13,7 @@
     "build:win": "electron-builder --win",
     "build:linux": "electron-builder --linux",
     "build:all": "electron-builder --mac --win --linux",
-    "release:mac": "electron-builder --mac --publish=always",
+    "release:mac": "electron-builder --mac --publish=always && node scripts/fix-sharp-rpath.js dist/mac-arm64/review-crawler.app && node scripts/fix-sharp-rpath.js dist/mac/review-crawler.app",
     "release:win": "electron-builder --win --publish=always",
     "release:linux": "electron-builder --linux --publish=always",
     "release:all": "electron-builder --mac --win --linux --publish=always"
