@@ -22,11 +22,13 @@ GH_TOKEN=your_github_token_here
 
 ### macOS 릴리즈
 ```bash
+export GH_TOKEN="your_github_token_here"
 npm run release:mac
 ```
 
 ### Windows 릴리즈
-```bash
+```powershell
+$env:GH_TOKEN="your_github_token_here"
 npm run release:win
 ```
 

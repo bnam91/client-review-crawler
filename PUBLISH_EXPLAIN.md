@@ -41,11 +41,20 @@ npm run build:mac
 ```
 
 ### GitHub에 자동 배포하려면
-```bash
+
+**Windows (PowerShell):**
+```powershell
 $env:GH_TOKEN="your_token"
-npm run release:mac
-# 빌드 + GitHub Releases에 자동 업로드
+npm run release:win
 ```
+
+**macOS/Linux (zsh/bash):**
+```bash
+export GH_TOKEN="your_token"
+npm run release:mac
+```
+
+# 빌드 + GitHub Releases에 자동 업로드
 
 ## 주의사항
 
