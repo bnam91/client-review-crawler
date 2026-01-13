@@ -122,11 +122,9 @@ export async function navigateToNextQnAPage(page, targetPage) {
             const ariaHidden = button.getAttribute('aria-hidden');
             const ariaDisabled = button.getAttribute('aria-disabled');
             const buttonText = button.textContent || '';
-            if (ariaDisabled !== 'true' && (ariaHidden === 'false' || ariaHidden === null)) {
-              if (buttonText.includes('다음')) {
-                button.click();
-                return true;
-              }
+            if (buttonText.includes('다음') && ariaDisabled !== 'true' && ariaHidden !== 'true') {
+              button.click();
+              return true;
             }
           }
           return false;
@@ -185,13 +183,13 @@ export async function navigateToNextQnAPage(page, targetPage) {
   if (newCurrentPage !== null && newCurrentPage === targetPage) {
     console.log(`[NaverQnAPagination]     ✅ 페이지 ${targetPage}로 이동 확인 완료.`);
     return true;
-  } else if (newCurrentPage !== null) {
+  } else if (newCurrentPage !== null && newCurrentPage !== currentPage) {
     console.log(`[NaverQnAPagination]     ⚠️ 페이지 이동 후 현재 페이지: ${newCurrentPage} (목표: ${targetPage})`);
-    // 페이지가 이동했으면 성공으로 간주
+    // 다른 페이지로 이동했으면 성공으로 간주
     return true;
   } else {
-    console.log(`[NaverQnAPagination]     ⚠️ 페이지 이동 후 현재 페이지를 확인할 수 없습니다.`);
-    return true; // 일단 성공으로 간주
+    console.log(`[NaverQnAPagination]     ❌ 페이지 이동 실패(현재=${newCurrentPage}, 목표=${targetPage})`);
+    return false;
   }
 }
 
@@ -203,7 +201,7 @@ export async function navigateToNextQnAPage(page, targetPage) {
 export async function hasNextQnAPage(page) {
   try {
     const hasNext = await page.evaluate(() => {
-      const paginationContainer = document.querySelector('div.bJ45eIkmCE.heUg1l_zzF.t_Jt5dgEqS, div.B1cSiaH8W3.heUg1l_zzF.t_Jt5dgEqS');
+      const paginationContainer = document.querySelector('div.bJ45eIkmCE.heUg1l_zzF.t_Jt5dgEqS, div.B1cSiaH8W3.heUg1l_zzF.t_Jt5dgEqS, div[role="menubar"][data-shp-inventory="qna"]');
 
       // 현재 페이지 번호/다음 버튼 탐색을 위한 헬퍼
       const getCurrentPage = (root) => {
@@ -230,7 +228,9 @@ export async function hasNextQnAPage(page) {
         const nextButtons = paginationContainer.querySelectorAll('a.g58k3AtMIx.jFLfdWHAWX');
         for (const button of nextButtons) {
           const buttonText = (button.textContent || '').trim();
-          if (buttonText.includes('다음')) {
+          const ariaHidden = button.getAttribute('aria-hidden');
+          const ariaDisabled = button.getAttribute('aria-disabled');
+          if (buttonText.includes('다음') && ariaHidden !== 'true' && ariaDisabled !== 'true') {
             return true;
           }
         }
