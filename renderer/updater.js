@@ -41,6 +41,8 @@ if (window.electronAPI && window.electronAPI.onUpdateStatus) {
       case 'update-not-available':
         title.textContent = '최신 버전입니다';
         message.textContent = '현재 최신 버전을 사용하고 있습니다.';
+        // 로그 박스에 메시지 추가
+        addLogToLogBox('[정보] 현재 최신 버전을 사용하고 있습니다.', 'success');
         setTimeout(() => {
           notification.style.display = 'none';
         }, 3000);
@@ -94,6 +96,20 @@ function openReleasePage(url) {
   } else {
     window.open(url, '_blank');
   }
+}
+
+// 로그 박스에 메시지 추가하는 헬퍼 함수
+function addLogToLogBox(message, className = '') {
+  const logBox = document.getElementById('log-box');
+  if (!logBox) return;
+  
+  const line = document.createElement('div');
+  line.className = `log-line ${className}`;
+  line.textContent = message;
+  logBox.appendChild(line);
+  
+  // 로그 박스 스크롤을 맨 아래로
+  logBox.scrollTop = logBox.scrollHeight;
 }
 
 // 전역 함수로 등록

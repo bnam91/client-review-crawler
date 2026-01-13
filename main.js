@@ -108,6 +108,7 @@ function createWindow() {
     minWidth: 480,
     // maxWidth: 450,
     title: 'review-crawler',
+    autoHideMenuBar: true, // Windows/Linux에서 메뉴바 자동 숨김
     webPreferences: {
       preload: join(__dirname, 'preload.mjs'),
       contextIsolation: true,
@@ -115,6 +116,11 @@ function createWindow() {
       sandbox: false,
     },
   });
+
+  // Windows에서 메뉴바 완전히 숨기기
+  if (process.platform === 'win32') {
+    mainWindow.setMenuBarVisibility(false);
+  }
 
   // 개발 모드 초기화
   if (isDev) {

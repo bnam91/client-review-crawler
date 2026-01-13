@@ -1,6 +1,6 @@
 {
   "name": "client-review-crawler",
-  "version": "0.6.2",
+  "version": "0.7.1",
   "description": "Naver and Coupang product review crawler",
   "type": "module",
   "main": "main.js",
@@ -41,7 +41,7 @@
   "build": {
     "appId": "com.bnam91.client-review-crawler",
     "productName": "review-crawler",
-    "copyright": "© 2026 bnam91. All rights reserved.",
+    "copyright": "© 2026 GOYA&MEDIA. All rights reserved. Contact: bnam91@naver.com",
     "directories": {
       "output": "dist",
       "buildResources": "build"
