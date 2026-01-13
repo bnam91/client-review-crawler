@@ -9,7 +9,7 @@ import { extractAllQnAs } from './naver/naverQnAExtractor.js';
 import { navigateToNextPage, hasNextPage } from './naver/naverPagination.js';
 import { navigateToNextQnAPage, hasNextQnAPage } from './naver/naverQnAPagination.js';
 import { saveReviews, saveReviewsToExcelChunk } from '../../src/utils/naver/storage/index.js';
-import { getStorageDirectory, resetSessionFolderName } from '../../src/utils/naver/storage/common.js';
+import { getStorageDirectory, resetSessionFolderName, setSessionFolderPrefix } from '../../src/utils/naver/storage/common.js';
 import { formatQnAData } from '../../src/utils/naver/storage/qnaFormatter.js';
 
 /**
@@ -49,8 +49,10 @@ function getMaxPages(pages, customPages = null) {
  */
 export async function handleNaver(browser, page, input, isUrl, collectionType = 0, sort = 0, pages = 0, customPages = null, savePath = '', excludeSecret = false, webContents = null) {
   
-  // 세션 폴더명 초기화 (새 크롤링 시작)
+  // 세션 폴더명 초기화 (새 크롤링 시작) 및 접두사 설정
   resetSessionFolderName();
+  const folderPrefix = collectionType === 0 ? 'review' : 'qna';
+  setSessionFolderPrefix(folderPrefix);
   
   // 로그 전송 헬퍼 함수
   const sendLog = (message, className = '', updateLast = false) => {
@@ -145,8 +147,9 @@ export async function handleNaver(browser, page, input, isUrl, collectionType = 
       sendLog(`[진행] 리뷰/Q&A 탭으로 이동 중...`, 'info');
       await clickReviewOrQnATab(newPage, collectionType, sort);
       
-      // 리뷰 수집일 때 리뷰 추출 (여러 페이지)
+      // 리뷰/Q&A 공용 변수 (최종 요약에서 사용하므로 블록 밖에서 선언)
       let allReviews = [];
+      let allQnAs = [];
       let chunkReviews = []; // Excel 청크 저장용
       let chunkCount = 1; // 청크 번호 (1부터 시작)
       const CHUNK_SIZE = 50; // 50페이지마다 청크 저장
@@ -159,7 +162,6 @@ export async function handleNaver(browser, page, input, isUrl, collectionType = 
         console.log(`[NaverService] Q&A 추출 시작... (최대 ${maxPagesText})`);
         sendLog(`[시작] Q&A 추출 시작 (최대 ${maxPagesText})`, 'info');
         
-        let allQnAs = [];
         let currentPage = 1;
         
         while (currentPage <= maxPages) {

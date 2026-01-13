@@ -122,10 +122,11 @@ export async function loadConfig() {
 
 // 세션별 폴더명 캐시 (같은 크롤링 세션에서는 같은 폴더명 사용)
 let sessionFolderName = null;
+let sessionFolderPrefix = 'results'; // 기본 접두사
 
 /**
  * 세션별 폴더명 생성 (크롤링 시작 시 한 번만 생성)
- * @returns {string} results_{날짜및시간} 형식의 폴더명
+ * @returns {string} <prefix>_{날짜및시간} 형식의 폴더명
  */
 function generateSessionFolderName() {
   if (sessionFolderName) {
@@ -141,7 +142,7 @@ function generateSessionFolderName() {
   const minutes = String(now.getMinutes()).padStart(2, '0');
   const seconds = String(now.getSeconds()).padStart(2, '0');
   const dateTimeStr = `${year}${month}${date}_${hours}${minutes}${seconds}`;
-  sessionFolderName = `results_${dateTimeStr}`;
+  sessionFolderName = `${sessionFolderPrefix}_${dateTimeStr}`;
   
   return sessionFolderName;
 }
@@ -151,6 +152,15 @@ function generateSessionFolderName() {
  */
 export function resetSessionFolderName() {
   sessionFolderName = null;
+  sessionFolderPrefix = 'results';
+}
+
+/**
+ * 세션 폴더 접두사 설정 (review, qna 등)
+ * @param {string} prefix
+ */
+export function setSessionFolderPrefix(prefix = 'results') {
+  sessionFolderPrefix = prefix || 'results';
 }
 
 /**

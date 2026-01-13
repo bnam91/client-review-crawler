@@ -69,12 +69,19 @@ export async function navigateToNextQnAPage(page, targetPage) {
     console.log(`[NaverQnAPagination]     ⚠️ 스크롤 이동 실패: ${e.message}`);
   }
   
+  // 페이지네이션 컨테이너가 렌더될 시간을 잠시 대기
+  try {
+    await page.waitForSelector('div[role="menubar"][data-shp-inventory="qna"]', { timeout: 3000 });
+  } catch (e) {
+    console.log(`[NaverQnAPagination]     ⚠️ 페이지네이션 컨테이너 대기 실패: ${e.message}`);
+  }
+
   // 1. 먼저 페이지 번호 버튼 클릭 시도 (현재 페이지네이션에 있는 경우)
   console.log(`[NaverQnAPagination]     📄 페이지 번호 버튼을 찾는 중...`);
   try {
     const clicked = await page.evaluate((targetPageNum) => {
       // 페이지네이션 컨테이너 내의 모든 페이지 번호 버튼 찾기
-      const paginationContainer = document.querySelector('div.bJ45eIkmCE.heUg1l_zzF.t_Jt5dgEqS');
+      const paginationContainer = document.querySelector('div.bJ45eIkmCE.heUg1l_zzF.t_Jt5dgEqS, div.B1cSiaH8W3.heUg1l_zzF.t_Jt5dgEqS');
       if (!paginationContainer) return false;
       
       const pageButtons = paginationContainer.querySelectorAll('a.F0MhmLrV2F[role="menuitem"]');
@@ -105,19 +112,38 @@ export async function navigateToNextQnAPage(page, targetPage) {
     console.log(`[NaverQnAPagination]     🔄 다음 버튼을 찾는 중...`);
     try {
       const clicked = await page.evaluate(() => {
-        // 페이지네이션 컨테이너 내의 "다음" 버튼 찾기
-        const paginationContainer = document.querySelector('div.bJ45eIkmCE.heUg1l_zzF.t_Jt5dgEqS');
-        if (!paginationContainer) return false;
-        
-        // "다음" 버튼 찾기 (aria-hidden="false"인 경우만 활성)
-        const nextButtons = paginationContainer.querySelectorAll('a.g58k3AtMIx.jFLfdWHAWX');
-        for (const button of nextButtons) {
-          const ariaHidden = button.getAttribute('aria-hidden');
-          if (ariaHidden === 'false' || ariaHidden === null) {
-            // 버튼 텍스트에 "다음"이 포함되어 있는지 확인
+        // 페이지네이션 컨테이너 내의 "다음" 버튼 찾기 (컨테이너가 여러 클래스일 수 있어 OR 선택)
+        const paginationContainer = document.querySelector('div.bJ45eIkmCE.heUg1l_zzF.t_Jt5dgEqS, div.B1cSiaH8W3.heUg1l_zzF.t_Jt5dgEqS, div[role=\"menubar\"][data-shp-inventory=\"qna\"]');
+
+        const tryClickNext = (root) => {
+          if (!root) return false;
+          const nextButtons = root.querySelectorAll('a.g58k3AtMIx.jFLfdWHAWX');
+          for (const button of nextButtons) {
+            const ariaHidden = button.getAttribute('aria-hidden');
+            const ariaDisabled = button.getAttribute('aria-disabled');
             const buttonText = button.textContent || '';
-            if (buttonText.includes('다음')) {
-              button.click();
+            if (ariaDisabled !== 'true' && (ariaHidden === 'false' || ariaHidden === null)) {
+              if (buttonText.includes('다음')) {
+                button.click();
+                return true;
+              }
+            }
+          }
+          return false;
+        };
+
+        // 1) 컨테이너 내에서 시도
+        if (tryClickNext(paginationContainer)) return true;
+
+        // 2) 컨테이너를 못 찾았을 때 전역에서 "다음" 텍스트를 가진 버튼 시도
+        const allAnchors = document.querySelectorAll('a');
+        for (const a of allAnchors) {
+          const text = (a.textContent || '').trim();
+          if (text.includes('다음')) {
+            const ariaHidden = a.getAttribute('aria-hidden');
+            const ariaDisabled = a.getAttribute('aria-disabled');
+            if (ariaDisabled !== 'true' && ariaHidden !== 'true') {
+              a.click();
               return true;
             }
           }
@@ -177,47 +203,57 @@ export async function navigateToNextQnAPage(page, targetPage) {
 export async function hasNextQnAPage(page) {
   try {
     const hasNext = await page.evaluate(() => {
-      // 페이지네이션 컨테이너 찾기
-      const paginationContainer = document.querySelector('div.bJ45eIkmCE.heUg1l_zzF.t_Jt5dgEqS');
-      if (!paginationContainer) return false;
-      
-      // 모든 페이지 번호 수집
-      const pageButtons = paginationContainer.querySelectorAll('a.F0MhmLrV2F[role="menuitem"]');
-      const pageNumbers = [];
-      pageButtons.forEach(btn => {
-        const text = btn.textContent?.trim();
-        if (text && /^\d+$/.test(text)) {
-          pageNumbers.push(parseInt(text));
+      const paginationContainer = document.querySelector('div.bJ45eIkmCE.heUg1l_zzF.t_Jt5dgEqS, div.B1cSiaH8W3.heUg1l_zzF.t_Jt5dgEqS');
+
+      // 현재 페이지 번호/다음 버튼 탐색을 위한 헬퍼
+      const getCurrentPage = (root) => {
+        const currentEl = root?.querySelector?.('a.F0MhmLrV2F[aria-current="true"]');
+        if (currentEl?.textContent) {
+          const num = parseInt(currentEl.textContent.trim());
+          if (!isNaN(num)) return num;
         }
-      });
-      
-      const maxPage = pageNumbers.length > 0 ? Math.max(...pageNumbers) : null;
-      
-      // 현재 페이지 번호
-      let currentPage = 1;
-      const currentPageElement = paginationContainer.querySelector('a.F0MhmLrV2F[aria-current="true"]');
-      if (currentPageElement && currentPageElement.textContent) {
-        const text = currentPageElement.textContent.trim();
-        const num = parseInt(text);
-        if (!isNaN(num)) {
-          currentPage = num;
+        return 1;
+      };
+
+      // 1) 페이지네이션 컨테이너 기반 체크
+      if (paginationContainer) {
+        const pageButtons = paginationContainer.querySelectorAll('a.F0MhmLrV2F[role="menuitem"]');
+        const pageNumbers = [];
+        pageButtons.forEach(btn => {
+          const text = btn.textContent?.trim();
+          if (text && /^\d+$/.test(text)) pageNumbers.push(parseInt(text));
+        });
+        const maxPage = pageNumbers.length > 0 ? Math.max(...pageNumbers) : null;
+        const currentPage = getCurrentPage(paginationContainer);
+
+        // "다음" 버튼 존재 여부
+        const nextButtons = paginationContainer.querySelectorAll('a.g58k3AtMIx.jFLfdWHAWX');
+        for (const button of nextButtons) {
+          const buttonText = (button.textContent || '').trim();
+          if (buttonText.includes('다음')) {
+            return true;
+          }
         }
-      }
-      
-      // 1) 다음 버튼 존재 여부 (aria-hidden 관계없이 텍스트로 판별)
-      const nextButtons = paginationContainer.querySelectorAll('a.g58k3AtMIx.jFLfdWHAWX');
-      for (const button of nextButtons) {
-        const buttonText = (button.textContent || '').trim();
-        if (buttonText.includes('다음')) {
+
+        // 현재 페이지보다 큰 번호가 존재하면 다음 페이지 가능
+        if (maxPage !== null && maxPage > currentPage) {
           return true;
         }
       }
-      
-      // 2) 현재 페이지보다 큰 번호가 존재하면 다음 페이지 가능
-      if (maxPage !== null && maxPage > currentPage) {
-        return true;
+
+      // 2) 컨테이너가 없거나 실패한 경우, 전역 fallback: 텍스트에 "다음"이 포함된 링크 탐색
+      const allAnchors = document.querySelectorAll('a');
+      for (const a of allAnchors) {
+        const text = (a.textContent || '').trim();
+        if (text.includes('다음')) {
+          const ariaHidden = a.getAttribute('aria-hidden');
+          const ariaDisabled = a.getAttribute('aria-disabled');
+          if (ariaDisabled !== 'true' && ariaHidden !== 'true') {
+            return true;
+          }
+        }
       }
-      
+
       return false;
     });
     
