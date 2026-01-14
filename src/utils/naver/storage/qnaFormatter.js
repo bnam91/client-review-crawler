@@ -39,6 +39,7 @@ export function formatQnAData(qnaList) {
     // 날짜 형식 변환
     const questionDate = formatDate(qna.date || '');
     const answerDate = formatDate(qna.answerDate || '');
+    const pageReview = qna.Page_Review || qna.pageReview || '';
     
     // threadId 생성 (QNA-{date}-{순번})
     const dateForId = questionDate || answerDate || new Date().toISOString().split('T')[0];
@@ -83,6 +84,7 @@ export function formatQnAData(qnaList) {
     const formattedQna = {
       threadId,
       status,
+      Page_Review: pageReview,
       messages
     };
     

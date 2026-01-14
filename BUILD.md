@@ -51,3 +51,59 @@ npm run build:linux
 - `author`: 작성자 정보
 - `build.appId`: 고유한 앱 ID (예: `com.yourcompany.appname`)
 - `build.productName`: 사용자에게 보이는 앱 이름
+
+## macOS 실행 문제 해결
+
+### 문제: 구글 드라이브 등에서 다운로드한 앱이 실행되지 않음
+
+macOS Gatekeeper가 인터넷에서 다운로드한 앱을 차단할 수 있습니다.
+
+#### 해결 방법 1: Quarantine 속성 제거 (권장)
+
+터미널에서 다음 명령어 실행:
+
+```bash
+# .app 파일인 경우
+xattr -cr /path/to/review-crawler.app
+
+# .dmg 파일인 경우 (마운트 후)
+xattr -cr /Volumes/review-crawler/review-crawler.app
+```
+
+#### 해결 방법 2: 우클릭으로 실행
+
+1. Finder에서 앱을 찾기
+2. 우클릭 → "열기" 선택
+3. 보안 경고에서 "열기" 클릭
+
+#### 해결 방법 3: 시스템 설정에서 허용
+
+1. 시스템 설정 → 개인 정보 보호 및 보안
+2. "확인되지 않은 개발자의 앱 허용" 활성화 (있는 경우)
+
+### 코드 서명 및 공증 (선택사항)
+
+Apple Developer 계정이 있다면 코드 서명을 추가할 수 있습니다:
+
+1. `package.json`의 `build.mac` 섹션에 추가:
+```json
+"mac": {
+  "identity": "Developer ID Application: Your Name (TEAM_ID)",
+  "hardenedRuntime": true,
+  "gatekeeperAssess": false,
+  "entitlements": "build/entitlements.mac.plist",
+  "entitlementsInherit": "build/entitlements.mac.plist"
+}
+```
+
+2. Notarization 설정 (환경 변수):
+```bash
+export APPLE_ID="your@email.com"
+export APPLE_ID_PASSWORD="app-specific-password"
+export APPLE_TEAM_ID="TEAM_ID"
+```
+
+3. 빌드 시 자동 공증:
+```bash
+npm run build:mac
+```

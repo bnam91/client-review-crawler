@@ -41,7 +41,7 @@ async function clickExcludeSecretCheckbox(page, excludeSecret) {
  * @param {boolean} excludeSecret - 비밀글 제외 여부
  * @returns {Promise<Array<object>>} 추출된 Q&A 데이터 배열
  */
-export async function extractAllQnAs(page, excludeSecret = false) {
+export async function extractAllQnAs(page, excludeSecret = false, pageNumber = null) {
   const allQnAs = []; // 수집한 Q&A 데이터 배열
   
   try {
@@ -103,7 +103,8 @@ export async function extractAllQnAs(page, excludeSecret = false) {
           answer: '',
           answerAuthor: '',
           answerDate: '',
-          isSecret: true
+          isSecret: true,
+          Page_Review: pageNumber ? `${pageNumber}_${i + 1}` : ''
         };
         
         allQnAs.push(qnaData);
@@ -195,7 +196,8 @@ export async function extractAllQnAs(page, excludeSecret = false) {
             answer: detail.answer || '',
             answerAuthor: detail.answerAuthor || '',
             answerDate: detail.answerDate || '',
-            isSecret: false
+            isSecret: false,
+            Page_Review: pageNumber ? `${pageNumber}_${i + 1}` : ''
           };
           
           allQnAs.push(qnaData);

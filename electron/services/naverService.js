@@ -167,7 +167,7 @@ export async function handleNaver(browser, page, input, isUrl, collectionType = 
         while (currentPage <= maxPages) {
           console.log(`[NaverService] 📄 Q&A 페이지 ${currentPage} 크롤링 중...`);
           sendLog(`[진행] Q&A 페이지 ${currentPage}/${maxPages === Infinity ? '?' : maxPages} 크롤링 중...`, 'info', true);
-          const pageQnAs = await extractAllQnAs(newPage, excludeSecret);
+          const pageQnAs = await extractAllQnAs(newPage, excludeSecret, currentPage);
           allQnAs = allQnAs.concat(pageQnAs);
           console.log(`[NaverService] ✅ 페이지 ${currentPage}: ${pageQnAs.length}개 Q&A 추출 (누적: ${allQnAs.length}개)`);
           sendLog(`[완료] 페이지 ${currentPage}: ${pageQnAs.length}개 Q&A 추출 (누적: ${allQnAs.length}개)`, 'success');
@@ -181,12 +181,60 @@ export async function handleNaver(browser, page, input, isUrl, collectionType = 
               break;
             }
             
-            sendLog(`[진행] 페이지 ${currentPage + 1}로 이동 중...`, 'info', true);
-            const nextPageSuccess = await navigateToNextQnAPage(newPage, currentPage + 1);
+            // 네이버 Rate Limiting 회피: 5~10초 랜덤 대기 후 3회 시도, 실패 시 60초 대기
+            let nextPageSuccess = false;
+            let attemptCount = 0;
+            const maxAttempts = 3;
+            
+            while (!nextPageSuccess && attemptCount < maxAttempts) {
+              attemptCount++;
+              
+              // 5~10초 사이 랜덤 대기
+              const delay = 5000 + Math.floor(Math.random() * 5000);
+              const delaySec = (delay / 1000).toFixed(1);
+              
+              if (attemptCount === 1) {
+                // 첫 시도
+                console.log(`[NaverService] ⏳ 시도 ${attemptCount}/${maxAttempts}: ${delaySec}초 대기 중...`);
+                sendLog(`[진행] 페이지 이동 전 ${delaySec}초 대기 중 (시도 ${attemptCount}/${maxAttempts})...`, 'info', true);
+                await new Promise(resolve => setTimeout(resolve, delay));
+              } else {
+                // 재시도
+                console.log(`[NaverService] ⏳ 재시도 ${attemptCount}/${maxAttempts}: ${delaySec}초 대기 중...`);
+                sendLog(`[진행] 재시도를 위해 ${delaySec}초 대기 중 (시도 ${attemptCount}/${maxAttempts})...`, 'info', true);
+                await new Promise(resolve => setTimeout(resolve, delay));
+              }
+              
+              sendLog(`[진행] 페이지 ${currentPage + 1}로 이동 중 (시도 ${attemptCount}/${maxAttempts})...`, 'info', true);
+              const pageNavStartTime = Date.now();
+              nextPageSuccess = await navigateToNextQnAPage(newPage, currentPage + 1);
+              const pageNavDuration = Date.now() - pageNavStartTime;
+              
+              if (nextPageSuccess) {
+                console.log(`[NaverService] ✅ 페이지 ${currentPage} → ${currentPage + 1} 이동 완료 (시도 ${attemptCount}/${maxAttempts}, 소요 시간: ${pageNavDuration}ms / ${(pageNavDuration / 1000).toFixed(1)}초)`);
+              } else {
+                console.log(`[NaverService] ⚠️ 페이지 ${currentPage + 1}로 이동 실패 (시도 ${attemptCount}/${maxAttempts}, 소요 시간: ${pageNavDuration}ms)`);
+              }
+            }
+            
+            // 3회 시도 후에도 실패하면 60초 대기 후 한 번 더 시도
             if (!nextPageSuccess) {
-              console.log(`[NaverService] ⚠️ 페이지 ${currentPage + 1}로 이동 실패. 크롤링을 종료합니다.`);
-              sendLog(`[오류] 페이지 ${currentPage + 1}로 이동 실패. 크롤링을 종료합니다.`, 'error');
-              break;
+              console.log(`[NaverService] 🔄 3회 시도 실패 → 60초 대기 후 최종 시도...`);
+              sendLog(`[진행] 429 에러 가능성 - 60초 대기 후 최종 시도...`, 'warning', true);
+              await new Promise(resolve => setTimeout(resolve, 60000));
+              
+              sendLog(`[진행] 페이지 ${currentPage + 1}로 최종 이동 시도 중...`, 'info', true);
+              const pageNavStartTime = Date.now();
+              nextPageSuccess = await navigateToNextQnAPage(newPage, currentPage + 1);
+              const pageNavDuration = Date.now() - pageNavStartTime;
+              
+              if (nextPageSuccess) {
+                console.log(`[NaverService] ✅ 페이지 ${currentPage} → ${currentPage + 1} 최종 이동 완료 (소요 시간: ${pageNavDuration}ms / ${(pageNavDuration / 1000).toFixed(1)}초)`);
+              } else {
+                console.log(`[NaverService] ❌ 페이지 ${currentPage + 1}로 최종 이동 실패 (소요 시간: ${pageNavDuration}ms). 크롤링을 종료합니다.`);
+                sendLog(`[오류] 페이지 ${currentPage + 1}로 이동 실패. 크롤링을 종료합니다.`, 'error');
+                break;
+              }
             }
           }
           
@@ -471,7 +519,7 @@ export async function handleNaver(browser, page, input, isUrl, collectionType = 
         while (currentPage <= maxPages) {
           console.log(`[NaverService] 📄 Q&A 페이지 ${currentPage} 크롤링 중...`);
           sendLog(`[진행] Q&A 페이지 ${currentPage}/${maxPages === Infinity ? '?' : maxPages} 크롤링 중...`, 'info', true);
-          const pageQnAs = await extractAllQnAs(productPage, excludeSecret);
+          const pageQnAs = await extractAllQnAs(productPage, excludeSecret, currentPage);
           allQnAs = allQnAs.concat(pageQnAs);
           console.log(`[NaverService] ✅ 페이지 ${currentPage}: ${pageQnAs.length}개 Q&A 추출 (누적: ${allQnAs.length}개)`);
           sendLog(`[완료] 페이지 ${currentPage}: ${pageQnAs.length}개 Q&A 추출 (누적: ${allQnAs.length}개)`, 'success');
@@ -485,12 +533,60 @@ export async function handleNaver(browser, page, input, isUrl, collectionType = 
               break;
             }
             
-            sendLog(`[진행] 페이지 ${currentPage + 1}로 이동 중...`, 'info', true);
-            const nextPageSuccess = await navigateToNextQnAPage(productPage, currentPage + 1);
+            // 네이버 Rate Limiting 회피: 5~10초 랜덤 대기 후 3회 시도, 실패 시 60초 대기
+            let nextPageSuccess = false;
+            let attemptCount = 0;
+            const maxAttempts = 3;
+            
+            while (!nextPageSuccess && attemptCount < maxAttempts) {
+              attemptCount++;
+              
+              // 5~10초 사이 랜덤 대기
+              const delay = 5000 + Math.floor(Math.random() * 5000);
+              const delaySec = (delay / 1000).toFixed(1);
+              
+              if (attemptCount === 1) {
+                // 첫 시도
+                console.log(`[NaverService] ⏳ 시도 ${attemptCount}/${maxAttempts}: ${delaySec}초 대기 중...`);
+                sendLog(`[진행] 페이지 이동 전 ${delaySec}초 대기 중 (시도 ${attemptCount}/${maxAttempts})...`, 'info', true);
+                await new Promise(resolve => setTimeout(resolve, delay));
+              } else {
+                // 재시도
+                console.log(`[NaverService] ⏳ 재시도 ${attemptCount}/${maxAttempts}: ${delaySec}초 대기 중...`);
+                sendLog(`[진행] 재시도를 위해 ${delaySec}초 대기 중 (시도 ${attemptCount}/${maxAttempts})...`, 'info', true);
+                await new Promise(resolve => setTimeout(resolve, delay));
+              }
+              
+              sendLog(`[진행] 페이지 ${currentPage + 1}로 이동 중 (시도 ${attemptCount}/${maxAttempts})...`, 'info', true);
+              const pageNavStartTime = Date.now();
+              nextPageSuccess = await navigateToNextQnAPage(productPage, currentPage + 1);
+              const pageNavDuration = Date.now() - pageNavStartTime;
+              
+              if (nextPageSuccess) {
+                console.log(`[NaverService] ✅ 페이지 ${currentPage} → ${currentPage + 1} 이동 완료 (시도 ${attemptCount}/${maxAttempts}, 소요 시간: ${pageNavDuration}ms / ${(pageNavDuration / 1000).toFixed(1)}초)`);
+              } else {
+                console.log(`[NaverService] ⚠️ 페이지 ${currentPage + 1}로 이동 실패 (시도 ${attemptCount}/${maxAttempts}, 소요 시간: ${pageNavDuration}ms)`);
+              }
+            }
+            
+            // 3회 시도 후에도 실패하면 60초 대기 후 한 번 더 시도
             if (!nextPageSuccess) {
-              console.log(`[NaverService] ⚠️ 페이지 ${currentPage + 1}로 이동 실패. 크롤링을 종료합니다.`);
-              sendLog(`[오류] 페이지 ${currentPage + 1}로 이동 실패. 크롤링을 종료합니다.`, 'error');
-              break;
+              console.log(`[NaverService] 🔄 3회 시도 실패 → 60초 대기 후 최종 시도...`);
+              sendLog(`[진행] 429 에러 가능성 - 60초 대기 후 최종 시도...`, 'warning', true);
+              await new Promise(resolve => setTimeout(resolve, 60000));
+              
+              sendLog(`[진행] 페이지 ${currentPage + 1}로 최종 이동 시도 중...`, 'info', true);
+              const pageNavStartTime = Date.now();
+              nextPageSuccess = await navigateToNextQnAPage(productPage, currentPage + 1);
+              const pageNavDuration = Date.now() - pageNavStartTime;
+              
+              if (nextPageSuccess) {
+                console.log(`[NaverService] ✅ 페이지 ${currentPage} → ${currentPage + 1} 최종 이동 완료 (소요 시간: ${pageNavDuration}ms / ${(pageNavDuration / 1000).toFixed(1)}초)`);
+              } else {
+                console.log(`[NaverService] ❌ 페이지 ${currentPage + 1}로 최종 이동 실패 (소요 시간: ${pageNavDuration}ms). 크롤링을 종료합니다.`);
+                sendLog(`[오류] 페이지 ${currentPage + 1}로 이동 실패. 크롤링을 종료합니다.`, 'error');
+                break;
+              }
             }
           }
           

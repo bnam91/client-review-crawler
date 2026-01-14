@@ -246,6 +246,7 @@ export async function saveQnAToExcel(qnaList, filename = 'naver_qna', customPath
     
     // 컬럼 정의
     const columns = [
+      { header: 'Page_Review', key: 'Page_Review', width: 15 },
       { header: 'threadId', key: 'threadId', width: 20 },
       { header: '유형', key: 'type', width: 12 },
       { header: '역할', key: 'role', width: 12 },
@@ -270,6 +271,7 @@ export async function saveQnAToExcel(qnaList, filename = 'naver_qna', customPath
       if (Array.isArray(qna.messages) && qna.messages.length > 0) {
         for (const message of qna.messages) {
           const row = worksheet.addRow({
+            Page_Review: qna.Page_Review || '',
             threadId: threadId,
             type: message.type || '',
             role: message.role || '',
@@ -289,6 +291,7 @@ export async function saveQnAToExcel(qnaList, filename = 'naver_qna', customPath
       } else {
         // messages가 없는 경우에도 기본 정보라도 저장
         const row = worksheet.addRow({
+          Page_Review: qna.Page_Review || '',
           threadId: threadId,
           type: '',
           role: '',
