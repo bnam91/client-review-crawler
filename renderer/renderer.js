@@ -86,12 +86,15 @@ document.addEventListener('DOMContentLoaded', () => {
     const startBtn = document.getElementById('start-btn');
     if (!startBtn) return;
     
-    // plan이 2이고 쿠팡(platform === 1)이면 버튼 비활성화
-    if (configPlan === 2 && state.platform === 1) {
+    // plan 1=네이버만, 2=쿠팡만, 3=전체
+    const blocked =
+      (configPlan === 1 && state.platform === 1) || // 네이버 플랜 → 쿠팡 차단
+      (configPlan === 2 && state.platform === 0);   // 쿠팡 플랜 → 네이버 차단
+    if (blocked) {
       startBtn.disabled = true;
       startBtn.style.opacity = '0.5';
       startBtn.style.cursor = 'not-allowed';
-      console.log('[Renderer] 쿠팡 버튼 선택됨 - plan이 2이므로 수집 시작 버튼 비활성화');
+      console.log('[Renderer] 현재 플랜에서 지원하지 않는 플랫폼 - 수집 시작 버튼 비활성화');
     } else {
       startBtn.disabled = false;
       startBtn.style.opacity = '1';
@@ -141,7 +144,17 @@ document.addEventListener('DOMContentLoaded', () => {
 
     platformToggleBtn.addEventListener('click', () => {
       // 네이버(0) ↔ 쿠팡(1) 전환
-      state.platform = state.platform === 0 ? 1 : 0;
+      const next = state.platform === 0 ? 1 : 0;
+      // plan 1=네이버만, 2=쿠팡만 → 단일 플랫폼 플랜은 토글 불가
+      if (configPlan === 1 && next === 1) {
+        showModal('현재 플랜(네이버 전용)에서는 쿠팡을 사용할 수 없습니다.');
+        return;
+      }
+      if (configPlan === 2 && next === 0) {
+        showModal('현재 플랜(쿠팡 전용)에서는 네이버를 사용할 수 없습니다.');
+        return;
+      }
+      state.platform = next;
       platformNameElement.textContent = platformNames[state.platform];
 
       // 쿠팡일 때 버튼 스타일 변경
@@ -430,9 +443,13 @@ document.addEventListener('DOMContentLoaded', () => {
   const startBtn = document.getElementById('start-btn');
   if (startBtn) {
     startBtn.addEventListener('click', async () => {
-      // plan이 2이고 쿠팡이면 클릭 차단
-      if (configPlan === 2 && state.platform === 1) {
-        showModal('현재 플랜에서는 쿠팡 수집을 사용할 수 없습니다.');
+      // plan 1=네이버만, 2=쿠팡만, 3=전체
+      const planBlocked =
+        (configPlan === 1 && state.platform === 1) ||
+        (configPlan === 2 && state.platform === 0);
+      if (planBlocked) {
+        const planName = configPlan === 1 ? '네이버 전용' : '쿠팡 전용';
+        showModal(`현재 플랜(${planName})에서는 해당 플랫폼 수집을 사용할 수 없습니다.`);
         return;
       }
       
@@ -790,11 +807,316 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
   
+  // ── 라이선스 인증 ──────────────────────────────────────────────
+  const licenseOverlay = document.getElementById('license-overlay');
+  const licenseIdInput = document.getElementById('license-id-input');
+  const licenseKeyInput = document.getElementById('license-key-input');
+  const licenseSubmitBtn = document.getElementById('license-submit-btn');
+  const licenseError = document.getElementById('license-error');
+  const ipLimitModal = document.getElementById('ip-limit-modal');
+  const ipLimitList = document.getElementById('ip-limit-list');
+
+  let currentIp = null;
+  let currentLicenseKey = null;
+
+  // IP 가져온 후 라이선스 체크
+  async function getIpAndCheckLicense() {
+    // IP 가져오기
+    const apis = [
+      { url: 'https://api.ipify.org?format=json', type: 'json' },
+      { url: 'https://api.ip.sb/ip', type: 'text' },
+      { url: 'https://ifconfig.me/ip', type: 'text' },
+    ];
+    for (const api of apis) {
+      try {
+        const res = await fetch(api.url, { signal: AbortSignal.timeout(5000) });
+        currentIp = api.type === 'json' ? (await res.json()).ip : (await res.text()).trim();
+        if (currentIp) break;
+      } catch (e) { continue; }
+    }
+
+    // 메뉴 IP 표시
+    const menuUserIp = document.getElementById('menu-user-ip');
+    if (menuUserIp) menuUserIp.textContent = currentIp || '확인 불가';
+
+    if (!currentIp) {
+      showLicenseOverlay();
+      return;
+    }
+
+    // IP로 유저 조회
+    const result = await window.electronAPI.licenseCheckIp(currentIp);
+    if (result.found) {
+      applyUser(result.user);
+    } else {
+      showLicenseOverlay();
+    }
+  }
+
+  function showLicenseOverlay() {
+    if (licenseOverlay) licenseOverlay.style.display = 'flex';
+  }
+
+  function hideLicenseOverlay() {
+    if (licenseOverlay) licenseOverlay.style.display = 'none';
+  }
+
+  let currentAllowedIps = [];
+
+  function applyUser(user) {
+    currentLicenseKey = user.licenseKey;
+    currentAllowedIps = user.allowedIps || [];
+    const menuUserName = document.getElementById('menu-user-name');
+    if (menuUserName) menuUserName.textContent = user.userId || user.userName || '-';
+    // plan 적용 (기존 configPlan 대체)
+    configPlan = user.plan;
+    updateStartButtonState();
+    hideLicenseOverlay();
+    if (ipLimitModal) ipLimitModal.style.display = 'none';
+    // root면 관리자 버튼 표시
+    const adminBtn = document.getElementById('admin-btn');
+    if (adminBtn) adminBtn.style.display = (user.userId === 'root') ? 'inline-flex' : 'none';
+    console.log(`[License] 인증 완료: ${user.userId} / plan:${user.plan}`);
+  }
+
+  // 기기 관리 모달
+  const deviceModal = document.getElementById('device-modal');
+  const deviceIpList = document.getElementById('device-ip-list');
+  const deviceModalCount = document.getElementById('device-modal-count');
+
+  function renderDeviceModal() {
+    if (!deviceIpList) return;
+    deviceIpList.innerHTML = '';
+    if (deviceModalCount) deviceModalCount.textContent = `${currentAllowedIps.length} / 5`;
+
+    currentAllowedIps.forEach(({ ip, alias, registeredAt }) => {
+      const isCurrent = ip === currentIp;
+      const date = registeredAt ? new Date(registeredAt).toLocaleDateString('ko-KR') : '';
+      const item = document.createElement('div');
+      item.className = 'ip-item' + (isCurrent ? ' ip-item-current' : '');
+      item.innerHTML = `
+        <div class="ip-item-info" style="flex:1;">
+          <div style="display:flex;align-items:center;">
+            <span class="ip-item-ip">${ip}</span>
+            ${isCurrent ? '<span class="ip-item-current-badge">현재</span>' : ''}
+          </div>
+          <span class="ip-item-date">${date}</span>
+          <div class="ip-alias-row">
+            <input class="ip-alias-input" type="text" placeholder="별칭 없음" value="${alias || ''}" data-ip="${ip}" maxlength="20" />
+            <button class="ip-alias-save" data-ip="${ip}">저장</button>
+          </div>
+        </div>
+        <button class="ip-item-delete" data-ip="${ip}" style="margin-left:10px; align-self:flex-start;">삭제</button>
+      `;
+      deviceIpList.appendChild(item);
+    });
+
+    // 별칭 저장
+    deviceIpList.querySelectorAll('.ip-alias-save').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const ip = btn.dataset.ip;
+        const input = deviceIpList.querySelector(`.ip-alias-input[data-ip="${ip}"]`);
+        const alias = input?.value.trim() || '';
+        await window.electronAPI.licenseUpdateAlias(currentLicenseKey, ip, alias);
+        // 로컬 반영
+        const entry = currentAllowedIps.find(e => e.ip === ip);
+        if (entry) entry.alias = alias;
+        btn.textContent = '저장됨';
+        setTimeout(() => { btn.textContent = '저장'; }, 1200);
+      });
+    });
+
+    // IP 삭제
+    deviceIpList.querySelectorAll('.ip-item-delete').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const ip = btn.dataset.ip;
+        if (ip === currentIp) {
+          showModal('현재 기기는 삭제할 수 없습니다.');
+          return;
+        }
+        await window.electronAPI.licenseRemoveIp(currentLicenseKey, ip);
+        currentAllowedIps = currentAllowedIps.filter(e => e.ip !== ip);
+        renderDeviceModal();
+      });
+    });
+  }
+
+  document.getElementById('device-manage-btn')?.addEventListener('click', () => {
+    if (!currentLicenseKey) return;
+    menuPanel.style.display = 'none';
+    renderDeviceModal();
+    if (deviceModal) deviceModal.style.display = 'flex';
+  });
+
+  document.getElementById('device-modal-close')?.addEventListener('click', () => {
+    if (deviceModal) deviceModal.style.display = 'none';
+  });
+
+  // 관리자 모달 (root 전용)
+  const adminModal = document.getElementById('admin-modal');
+  const adminKeyList = document.getElementById('admin-key-list');
+  const PLAN_LABELS = { 1: '네이버만', 2: '쿠팡만', 3: '네이버+쿠팡' };
+
+  async function loadAdminKeyList() {
+    if (!adminKeyList) return;
+    adminKeyList.innerHTML = '<div class="admin-loading">로딩 중...</div>';
+    const result = await window.electronAPI.licenseListKeys();
+    if (!result.success) {
+      adminKeyList.innerHTML = '<div class="admin-loading">불러오기 실패</div>';
+      return;
+    }
+    adminKeyList.innerHTML = '';
+    result.list.forEach(({ licenseKey, plan, active, memo, createdAt }) => {
+      const date = createdAt ? new Date(createdAt).toLocaleDateString('ko-KR') : '';
+      const item = document.createElement('div');
+      item.className = 'admin-key-item' + (active ? '' : ' admin-key-item-inactive');
+      item.innerHTML = `
+        <span class="admin-key-item-key" title="클릭하여 복사">${licenseKey}</span>
+        <span class="admin-key-item-memo">${memo || ''}</span>
+        <div class="admin-key-item-meta">
+          <span class="admin-key-item-plan admin-plan-${plan}">${PLAN_LABELS[plan] || plan}</span>
+          <span class="admin-key-item-date">${date}</span>
+        </div>
+      `;
+      // 클릭하여 복사
+      item.querySelector('.admin-key-item-key').addEventListener('click', () => {
+        navigator.clipboard.writeText(licenseKey);
+        showModal(`복사됨: ${licenseKey}`);
+      });
+      adminKeyList.appendChild(item);
+    });
+    if (result.list.length === 0) {
+      adminKeyList.innerHTML = '<div class="admin-loading">발급된 키 없음</div>';
+    }
+  }
+
+  document.getElementById('admin-btn')?.addEventListener('click', () => {
+    if (adminModal) {
+      adminModal.style.display = 'flex';
+      loadAdminKeyList();
+    }
+  });
+
+  document.getElementById('admin-modal-close')?.addEventListener('click', () => {
+    if (adminModal) adminModal.style.display = 'none';
+  });
+
+  document.getElementById('admin-refresh-btn')?.addEventListener('click', loadAdminKeyList);
+
+  document.getElementById('admin-issue-btn')?.addEventListener('click', async () => {
+    const planSelect = document.getElementById('admin-plan-select');
+    const memoInput = document.getElementById('admin-memo-input');
+    const issuedKeyEl = document.getElementById('admin-issued-key');
+    const issueBtn = document.getElementById('admin-issue-btn');
+
+    const plan = parseInt(planSelect?.value || '3');
+    const memo = memoInput?.value.trim() || '';
+
+    issueBtn.disabled = true;
+    issueBtn.textContent = '발급 중...';
+
+    const result = await window.electronAPI.licenseCreateKey(plan, memo);
+
+    issueBtn.disabled = false;
+    issueBtn.textContent = '발급';
+
+    if (result.success) {
+      if (issuedKeyEl) {
+        issuedKeyEl.textContent = result.licenseKey;
+        issuedKeyEl.style.display = 'block';
+        issuedKeyEl.onclick = () => {
+          navigator.clipboard.writeText(result.licenseKey);
+          showModal(`복사됨: ${result.licenseKey}`);
+        };
+      }
+      if (memoInput) memoInput.value = '';
+      loadAdminKeyList();
+    } else {
+      showModal('키 발급 실패: ' + (result.reason || result.error));
+    }
+  });
+
+  // 라이선스 키 제출
+  if (licenseSubmitBtn) {
+    licenseSubmitBtn.addEventListener('click', async () => {
+      const userId = licenseIdInput?.value.trim();
+      const key = licenseKeyInput?.value.trim().toUpperCase();
+
+      if (!userId) { if (licenseError) licenseError.textContent = 'ID를 입력하세요.'; return; }
+      if (!key) { if (licenseError) licenseError.textContent = '라이선스 키를 입력하세요.'; return; }
+
+      licenseSubmitBtn.disabled = true;
+      licenseSubmitBtn.textContent = '확인 중...';
+      if (licenseError) licenseError.textContent = '';
+
+      const result = await window.electronAPI.licenseRegister(key, currentIp, userId);
+
+      licenseSubmitBtn.disabled = false;
+      licenseSubmitBtn.textContent = '확인';
+
+      if (result.success) {
+        applyUser(result.user);
+      } else if (result.reason === 'ip_limit') {
+        showIpLimitModal({ ...result, licenseKey: key });
+      } else {
+        const messages = {
+          invalid_key: '유효하지 않은 라이선스 키입니다.',
+          inactive: '만료된 라이선스입니다.',
+          userId_reserved: '사용할 수 없는 user_id입니다.',
+          userId_taken: '이미 사용 중인 user_id입니다.',
+          error: `오류: ${result.error}`,
+        };
+        if (licenseError) licenseError.textContent = messages[result.reason] || '인증 실패';
+      }
+    });
+
+    licenseKeyInput?.addEventListener('keydown', (e) => { if (e.key === 'Enter') licenseSubmitBtn.click(); });
+    licenseIdInput?.addEventListener('keydown', (e) => { if (e.key === 'Enter') licenseKeyInput?.focus(); });
+  }
+
+  // IP 한도 초과 모달
+  function showIpLimitModal(result) {
+    if (!ipLimitModal || !ipLimitList) return;
+    ipLimitList.innerHTML = '';
+    (result.allowedIps || []).forEach(({ ip, alias, registeredAt }) => {
+      const date = registeredAt ? new Date(registeredAt).toLocaleDateString('ko-KR') : '';
+      const item = document.createElement('div');
+      item.className = 'ip-item';
+      item.innerHTML = `
+        <div class="ip-item-info">
+          <span class="ip-item-alias">${alias || '별칭 없음'}</span>
+          <span class="ip-item-ip">${ip}</span>
+          <span class="ip-item-date">${date}</span>
+        </div>
+        <button class="ip-item-delete" data-ip="${ip}">삭제</button>
+      `;
+      ipLimitList.appendChild(item);
+    });
+
+    ipLimitList.querySelectorAll('.ip-item-delete').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const ipToDelete = btn.dataset.ip;
+        const licenseKey = licenseKeyInput?.value.trim().toUpperCase();
+        const userId = licenseIdInput?.value.trim();
+        await window.electronAPI.licenseRemoveIp(licenseKey, ipToDelete);
+        const reg = await window.electronAPI.licenseRegister(licenseKey, currentIp, userId);
+        if (reg.success) applyUser(reg.user);
+      });
+    });
+
+    document.getElementById('ip-limit-cancel')?.addEventListener('click', () => {
+      ipLimitModal.style.display = 'none';
+    });
+
+    hideLicenseOverlay();
+    ipLimitModal.style.display = 'flex';
+  }
+
   // 초기화
   updateExpected();
   updateLog();
-  fetchUserIP(); // IP 주소 로드
-  updateStartButtonState(); // 초기 수집 시작 버튼 상태 설정
-  updateTime(); // 초기 시간 표시
-  setInterval(updateTime, 1000); // 1초마다 시간 업데이트
+  updateStartButtonState();
+  updateTime();
+  setInterval(updateTime, 1000);
+  getIpAndCheckLicense(); // IP 가져오기 + 라이선스 체크 (fetchUserIP 대체)
 });

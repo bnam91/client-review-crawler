@@ -111,6 +111,21 @@ try {
     onCrawlerLog: (callback) => {
       ipcRenderer.on('crawler-log', (event, data) => callback(data));
     },
+
+    // 라이선스 - IP로 유저 조회
+    licenseCheckIp: (ip) => ipcRenderer.invoke('license-check-ip', ip),
+    // 라이선스 - 키 입력 후 등록
+    licenseRegister: (licenseKey, ip, userId) => ipcRenderer.invoke('license-register', licenseKey, ip, userId),
+    // 라이선스 - 이름 저장
+    licenseUpdateName: (licenseKey, userName) => ipcRenderer.invoke('license-update-name', licenseKey, userName),
+    // 라이선스 - IP 별칭 수정
+    licenseUpdateAlias: (licenseKey, ip, alias) => ipcRenderer.invoke('license-update-alias', licenseKey, ip, alias),
+    // 라이선스 - IP 삭제
+    licenseRemoveIp: (licenseKey, ip) => ipcRenderer.invoke('license-remove-ip', licenseKey, ip),
+    // 라이선스 - 키 발급 (root 전용)
+    licenseCreateKey: (plan, memo) => ipcRenderer.invoke('license-create-key', plan, memo),
+    // 라이선스 - 키 목록 조회 (root 전용)
+    licenseListKeys: () => ipcRenderer.invoke('license-list-keys'),
   });
   console.log('[Preload] electronAPI exposed successfully');
 } catch (error) {

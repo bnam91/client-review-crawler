@@ -2,6 +2,7 @@ import { app, BrowserWindow, ipcMain, dialog, shell } from 'electron';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { initDevMode } from './electron/dev.js';
+import { findUserByIp, registerLicense, updateIpAlias, removeIp, updateUserName, createLicenseKey, listLicenseKeys, closeLicenseClient } from './electron/services/licenseService.js';
 import { openUrlInBrowser } from './electron/services/browserService.js';
 import updater from 'electron-updater';
 import log from 'electron-log';
@@ -242,6 +243,41 @@ app.whenReady().then(() => {
     }
   });
   
+  // 라이선스 - IP로 유저 조회
+  ipcMain.handle('license-check-ip', async (event, ip) => {
+    return await findUserByIp(ip);
+  });
+
+  // 라이선스 - 키 입력 후 등록
+  ipcMain.handle('license-register', async (event, licenseKey, ip, userId) => {
+    return await registerLicense(licenseKey, ip, userId);
+  });
+
+  // 라이선스 - 이름 저장
+  ipcMain.handle('license-update-name', async (event, licenseKey, userName) => {
+    return await updateUserName(licenseKey, userName);
+  });
+
+  // 라이선스 - IP 별칭 수정
+  ipcMain.handle('license-update-alias', async (event, licenseKey, ip, alias) => {
+    return await updateIpAlias(licenseKey, ip, alias);
+  });
+
+  // 라이선스 - IP 삭제
+  ipcMain.handle('license-remove-ip', async (event, licenseKey, ip) => {
+    return await removeIp(licenseKey, ip);
+  });
+
+  // 라이선스 - 키 발급 (root 전용)
+  ipcMain.handle('license-create-key', async (event, plan, memo) => {
+    return await createLicenseKey(plan, memo);
+  });
+
+  // 라이선스 - 키 목록 조회 (root 전용)
+  ipcMain.handle('license-list-keys', async () => {
+    return await listLicenseKeys();
+  });
+
   console.log('[Main] IPC handlers registered');
 
   app.on('activate', () => {

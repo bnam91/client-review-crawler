@@ -47,3 +47,20 @@
   background: rgba(255, 255, 255, 0.1);
   margin: 8px 0;
 }
+
+.menu-panel-device-btn {
+  width: 100%;
+  padding: 6px 0;
+  background: rgba(43, 118, 255, 0.12);
+  border: 1px solid rgba(43, 118, 255, 0.3);
+  border-radius: 6px;
+  color: rgba(120, 170, 255, 0.9);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  text-align: center;
+}
+
+.menu-panel-device-btn:hover {
+  background: rgba(43, 118, 255, 0.22);
+}

@@ -13,6 +13,7 @@
         <div class="app-title-row">
           <h1 class="app-title" id="app-title" style="cursor: pointer;">Review Crawler</h1>
           <div class="header-buttons">
+            <button class="menu-btn" id="admin-btn" title="관리자" style="display:none;">⚙️</button>
             <button class="menu-btn" id="menu-btn" title="프로필">👤</button>
             <button class="menu-btn" id="notion-link-btn" title="노션 문서">📋</button>
           </div>
@@ -52,8 +53,23 @@
           <span class="menu-panel-label">ip:</span>
           <span class="menu-panel-value" id="menu-user-ip">로딩 중...</span>
         </div>
+        <div class="menu-panel-divider"></div>
+        <button class="menu-panel-device-btn" id="device-manage-btn">기기 관리</button>
       </div>
     </div>
+
+  <!-- 기기 관리 모달 -->
+  <div id="device-modal" style="display: none;">
+    <div class="device-modal-box">
+      <div class="device-modal-header">
+        <span class="device-modal-title">기기 관리</span>
+        <span class="device-modal-count" id="device-modal-count"></span>
+      </div>
+      <div class="device-modal-desc">등록된 기기 목록입니다. 별칭을 편집하거나 기기를 삭제할 수 있습니다.</div>
+      <div class="ip-list" id="device-ip-list"></div>
+      <button class="button secondary" id="device-modal-close" style="width: 100%; margin-top: 8px;">닫기</button>
+    </div>
+  </div>
     
     <div class="cards-container">
       <div class="card">
@@ -129,6 +145,60 @@
     </div>
   </div>
   
+  <!-- 라이선스 입력 오버레이 -->
+  <div id="license-overlay" style="display: none;">
+    <div class="license-box">
+      <div class="license-title">Review Crawler</div>
+      <div class="license-subtitle">ID와 라이선스 키를 입력하세요</div>
+      <input type="text" id="license-id-input" class="license-input" placeholder="user_id" maxlength="30" />
+      <input type="text" id="license-key-input" class="license-input" placeholder="RC-XXXXXX" maxlength="9" style="margin-top: 6px;" />
+      <div class="license-error" id="license-error"></div>
+      <button class="button primary" id="license-submit-btn" style="width: 100%; margin-top: 8px;">확인</button>
+    </div>
+  </div>
+
+  <!-- IP 한도 초과 모달 -->
+  <div id="ip-limit-modal" style="display: none;">
+    <div class="ip-limit-box">
+      <div class="ip-limit-title">기기 한도 초과 (5/5)</div>
+      <div class="ip-limit-desc">삭제할 기기를 선택하면 현재 기기로 교체됩니다.</div>
+      <div class="ip-list" id="ip-limit-list"></div>
+      <button class="button secondary" id="ip-limit-cancel" style="width: 100%; margin-top: 8px;">취소</button>
+    </div>
+  </div>
+
+  <!-- 관리자 모달 (root 전용) -->
+  <div id="admin-modal" style="display: none;">
+    <div class="admin-modal-box">
+      <div class="admin-modal-header">
+        <span class="admin-modal-title">⚙️ 라이선스 관리</span>
+      </div>
+
+      <!-- 키 발급 영역 -->
+      <div class="admin-section-title">신규 키 발급</div>
+      <div class="admin-issue-row">
+        <select id="admin-plan-select" class="dropdown-select" style="flex:1;">
+          <option value="1">플랜 1 — 네이버만</option>
+          <option value="2">플랜 2 — 쿠팡만</option>
+          <option value="3" selected>플랜 3 — 네이버+쿠팡</option>
+        </select>
+        <input type="text" id="admin-memo-input" class="admin-memo-input" placeholder="메모 (선택)" maxlength="30" />
+        <button class="button primary" id="admin-issue-btn">발급</button>
+      </div>
+      <div id="admin-issued-key" class="admin-issued-key" style="display:none;"></div>
+
+      <!-- 발급된 키 목록 -->
+      <div class="admin-section-title" style="margin-top:16px;">발급 내역
+        <button class="admin-refresh-btn" id="admin-refresh-btn">↺</button>
+      </div>
+      <div class="admin-key-list" id="admin-key-list">
+        <div class="admin-loading">로딩 중...</div>
+      </div>
+
+      <button class="button secondary" id="admin-modal-close" style="width:100%; margin-top:12px;">닫기</button>
+    </div>
+  </div>
+
   <!-- 커스텀 모달 -->
   <div id="custom-modal" class="custom-modal" style="display: none;">
     <div class="modal-content">
