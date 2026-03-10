@@ -7,6 +7,10 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const PROJECT_ROOT = join(__dirname, '..');
 
+// 터미널이 닫혀 stdout 파이프가 끊겨도 앱이 죽지 않도록
+process.stdout.on('error', (err) => { if (err.code === 'EIO') process.exit(0); });
+process.stderr.on('error', (err) => { if (err.code === 'EIO') process.exit(0); });
+
 /**
  * 개발 모드 유틸리티
  */

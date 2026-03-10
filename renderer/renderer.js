@@ -29,8 +29,9 @@ document.addEventListener('DOMContentLoaded', () => {
         if (sortSelect) {
           sortSelect.style.display = 'none';
         }
+        // 비밀글 제외: 네이버만 지원 (쿠팡 Q&A는 비밀글 없음)
         if (excludeSecretGroup) {
-          excludeSecretGroup.style.display = 'flex';
+          excludeSecretGroup.style.display = state.platform === 0 ? 'flex' : 'none';
         }
       } else {
         // 리뷰 수집
@@ -98,30 +99,69 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
   
+  // 플랫폼별 정렬/수집 옵션 업데이트
+  function updateOptionsForPlatform(platform) {
+    if (!sortSelect || !collectionTypeSelect) return;
+
+    if (platform === 1) {
+      // 쿠팡: 베스트순 / 최신순
+      sortSelect.innerHTML = `
+        <option value="0">베스트순</option>
+        <option value="1">최신순</option>
+      `;
+      // Q&A 옵션 활성화 (쿠팡 Q&A 지원)
+      const qnaOption = collectionTypeSelect.querySelector('option[value="1"]');
+      if (qnaOption) {
+        qnaOption.disabled = false;
+        qnaOption.textContent = 'Q&A 수집';
+      }
+    } else {
+      // 네이버: 랭킹순 / 최신순 / 평점낮은순
+      sortSelect.innerHTML = `
+        <option value="0">랭킹순</option>
+        <option value="1">최신순</option>
+        <option value="2">평점낮은순</option>
+      `;
+      // Q&A 옵션 복구
+      const qnaOption = collectionTypeSelect.querySelector('option[value="1"]');
+      if (qnaOption) {
+        qnaOption.disabled = false;
+        qnaOption.textContent = 'Q&A 수집';
+      }
+    }
+    // 정렬 상태 초기화
+    state.sort = 0;
+    sortSelect.value = '0';
+  }
+
   if (platformToggleBtn && platformNameElement) {
     // 초기 플랫폼 설정 (네이버)
     const platformNames = ['네이버', '쿠팡'];
     platformNameElement.textContent = platformNames[state.platform];
-    
+
     platformToggleBtn.addEventListener('click', () => {
       // 네이버(0) ↔ 쿠팡(1) 전환
       state.platform = state.platform === 0 ? 1 : 0;
       platformNameElement.textContent = platformNames[state.platform];
-      
+
       // 쿠팡일 때 버튼 스타일 변경
       if (state.platform === 1) {
         platformToggleBtn.classList.add('coupang');
       } else {
         platformToggleBtn.classList.remove('coupang');
       }
-      
-      // 즉시 콘솔 로그 출력
+
+      // 플랫폼별 옵션 업데이트
+      updateOptionsForPlatform(state.platform);
+
+      // 쿠팡 Q&A 선택 상태였으면 비밀글 제외 숨기기
+      if (excludeSecretGroup && state.collectionType === 1) {
+        excludeSecretGroup.style.display = state.platform === 0 ? 'flex' : 'none';
+      }
+
       console.log(`[Renderer] 🎯 플랫폼 변경: ${platformNames[state.platform]} (값: ${state.platform})`);
-      
-      // 수집 시작 버튼 상태 업데이트
+
       updateStartButtonState();
-      
-      // 로그 및 상태 업데이트
       updateLog();
       updateExpected();
     });
@@ -187,9 +227,12 @@ document.addEventListener('DOMContentLoaded', () => {
             showStatusMessage('쿠팡 상품 URL이 감지되었습니다.', 'success');
           }
           
+          // 플랫폼별 옵션 업데이트
+          updateOptionsForPlatform(detectedPlatform);
+
           // 수집 시작 버튼 상태 업데이트
           updateStartButtonState();
-          
+
           updateLog();
           updateExpected();
         } else {
@@ -248,11 +291,12 @@ document.addEventListener('DOMContentLoaded', () => {
     sortSelect.addEventListener('change', (e) => {
       const newSort = parseInt(e.target.value);
       state.sort = newSort;
-      const sortNames = ['랭킹순', '최신순', '평점낮은순'];
-      
-      // 즉시 콘솔 로그 출력
-      console.log(`[Renderer] 🎯 정렬 변경: ${sortNames[newSort]} (값: ${newSort})`);
-      
+      const sortNames = state.platform === 1
+        ? ['베스트순', '최신순']
+        : ['랭킹순', '최신순', '평점낮은순'];
+
+      console.log(`[Renderer] 🎯 정렬 변경: ${sortNames[newSort] ?? newSort} (값: ${newSort})`);
+
       updateLog();
       updateExpected();
     });
@@ -409,7 +453,7 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
           const platformNames = ['네이버', '쿠팡'];
           const collectionTypeNames = ['리뷰 수집', 'Q&A 수집'];
-          const sortNames = ['랭킹순', '최신순', '평점낮은순'];
+          const sortNames = state.platform === 1 ? ['베스트순', '최신순'] : ['랭킹순', '최신순', '평점낮은순'];
           const pageNames = ['5페이지', '15페이지', '50페이지', '최대', '직접입력'];
           
           // 현재 state 값 전체 출력
@@ -513,9 +557,9 @@ document.addEventListener('DOMContentLoaded', () => {
     
     const platformNames = ['네이버', '쿠팡'];
     const collectionTypeNames = ['리뷰 수집', 'Q&A 수집', '리뷰 + Q&A 수집'];
-    const sortNames = ['랭킹순', '최신순', '평점낮은순'];
+    const sortNames = state.platform === 1 ? ['베스트순', '최신순'] : ['랭킹순', '최신순', '평점낮은순'];
     const pageNames = ['5', '15', '50', 'max', '직접 입력'];
-    
+
     const lines = [
       '<div class="log-line waiting">[대기] 상품 URL 입력을 기다리는 중…</div>',
       `<div class="log-line">[정보] 플랫폼: ${platformNames[state.platform]}</div>`,
@@ -533,9 +577,9 @@ document.addEventListener('DOMContentLoaded', () => {
     
     const platformNames = ['네이버', '쿠팡'];
     const collectionTypeNames = ['리뷰 수집', 'Q&A 수집', '리뷰 + Q&A 수집'];
-    const sortNames = ['랭킹순', '최신순', '평점낮은순'];
+    const sortNames = state.platform === 1 ? ['베스트순', '최신순'] : ['랭킹순', '최신순', '평점낮은순'];
     const pageNames = ['5', '15', '50', 'max', '직접 입력'];
-    
+
     expectedInfo.textContent = 
       `페이지 ${pageNames[state.pages]} · 정렬 ${sortNames[state.sort]} · 플랫폼 ${platformNames[state.platform]} · ${collectionTypeNames[state.collectionType]}`;
   }
@@ -668,7 +712,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // 초기화: sort 드롭다운의 현재 값을 state에 반영
   if (sortSelect) {
     state.sort = parseInt(sortSelect.value) || 0;
-    const sortNames = ['랭킹순', '최신순', '평점낮은순'];
+    const sortNames = state.platform === 1 ? ['베스트순', '최신순'] : ['랭킹순', '최신순', '평점낮은순'];
     console.log('[Renderer] 초기 sort 값:', state.sort, `(${sortNames[state.sort]})`);
   }
   

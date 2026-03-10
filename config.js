@@ -2,7 +2,7 @@
  * 저장 설정
  */
 export const config = {
-  plan: 2,
+  plan: 1,
   storage: {
     json: {
       enabled: 1,

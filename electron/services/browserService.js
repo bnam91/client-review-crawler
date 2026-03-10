@@ -263,7 +263,7 @@ export async function openUrlInBrowser(input, platform = 0, collectionType = 0, 
     let result;
     if (platform === 1) {
       // 쿠팡 플랫폼 처리
-      result = await handleCoupang(browser, page, input, inputIsUrl);
+      result = await handleCoupang(browser, page, input, inputIsUrl, collectionType, sort, pages, customPages, savePath, excludeSecret, webContents);
     } else {
       // 네이버 플랫폼 처리 (기본값)
       result = await handleNaver(browser, page, input, inputIsUrl, collectionType, sort, pages, customPages, savePath, excludeSecret, webContents);
