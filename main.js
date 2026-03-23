@@ -97,9 +97,9 @@ if (isDev || process.argv.includes('--dev')) {
   // 개발 모드에서도 업데이트 체크 가능하도록 설정
   autoUpdater.forceDevUpdateConfig = true;
 } else if (process.platform === 'darwin') {
-  // macOS에서는 자동 다운로드 비활성화 (수동 다운로드는 가능)
-  autoUpdater.autoDownload = false;
-  autoUpdater.autoInstallOnAppQuit = false;
+  // macOS에서도 자동 다운로드 활성화
+  autoUpdater.autoDownload = true;
+  autoUpdater.autoInstallOnAppQuit = true;
 }
 
 function createWindow() {
