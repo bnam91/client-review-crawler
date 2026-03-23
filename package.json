@@ -9,11 +9,11 @@
     "dev": "cross-env NODE_ENV=development electron .",
     "postinstall": "electron-rebuild -f -w sharp",
     "build": "electron-builder",
-    "build:mac": "electron-builder --mac && node scripts/fix-sharp-rpath.js dist/mac-arm64/review-crawler.app && node scripts/fix-sharp-rpath.js dist/mac/review-crawler.app",
+    "build:mac": "electron-builder --mac",
     "build:win": "electron-builder --win",
     "build:linux": "electron-builder --linux",
     "build:all": "electron-builder --mac --win --linux",
-    "release:mac": "electron-builder --mac --publish=always && node scripts/fix-sharp-rpath.js dist/mac-arm64/review-crawler.app && node scripts/fix-sharp-rpath.js dist/mac/review-crawler.app",
+    "release:mac": "electron-builder --mac --publish=always",
     "release:win": "electron-builder --win --publish=always",
     "release:linux": "electron-builder --linux --publish=always",
     "release:all": "electron-builder --mac --win --linux --publish=always"
@@ -40,6 +40,7 @@
     "electron-rebuild": "^3.2.9"
   },
   "build": {
+    "afterPack": "./scripts/afterPack.cjs",
     "appId": "com.bnam91.client-review-crawler",
     "productName": "review-crawler",
     "copyright": "© 2026 GOYA&MEDIA. All rights reserved. Contact: bnam91@naver.com",
