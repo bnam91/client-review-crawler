@@ -65,37 +65,8 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // 이미지 다운로드 체크박스 (기본 checked)
-  const downloadImagesCheckbox = document.getElementById('download-images');
-  const downloadImagesLabel = document.getElementById('download-images-label');
-  if (downloadImagesCheckbox) {
-    downloadImagesCheckbox.addEventListener('click', () => {
-      downloadImagesCheckbox.classList.toggle('checked');
-    });
-  }
-  if (downloadImagesLabel) {
-    downloadImagesLabel.addEventListener('click', () => {
-      if (downloadImagesCheckbox) {
-        downloadImagesCheckbox.classList.toggle('checked');
-      }
-    });
-  }
-
-  // 이미지 작게 받기 체크박스 (기본 unchecked — 원본 화질 유지가 default)
-  const smallImageCheckbox = document.getElementById('small-image');
-  const smallImageLabel = document.getElementById('small-image-label');
-  if (smallImageCheckbox) {
-    smallImageCheckbox.addEventListener('click', () => {
-      smallImageCheckbox.classList.toggle('checked');
-    });
-  }
-  if (smallImageLabel) {
-    smallImageLabel.addEventListener('click', () => {
-      if (smallImageCheckbox) {
-        smallImageCheckbox.classList.toggle('checked');
-      }
-    });
-  }
+  // 이미지 모드 셀렉트 (작게/원본/끄기) — 기본 작게(빠름)
+  const imageModeSelect = document.getElementById('image-mode');
 
   // 플랫폼 토글 버튼
   const platformToggleBtn = document.getElementById('platform-toggle-btn');
@@ -551,12 +522,13 @@ document.addEventListener('DOMContentLoaded', () => {
           console.log(`[Renderer] 비밀글 제외 체크박스 상태: ${excludeSecret}`);
 
           // 이미지 다운로드 체크박스 상태 확인 (리뷰 수집일 때 사용)
-          const downloadImages = downloadImagesCheckbox ? downloadImagesCheckbox.classList.contains('checked') : true;
-          console.log(`[Renderer] 이미지 다운로드 체크박스 상태: ${downloadImages}`);
+          const imageMode = imageModeSelect ? imageModeSelect.value : 'small';
+          const downloadImages = imageMode !== 'off';
+          console.log(`[Renderer] 이미지 모드: ${imageMode} (downloadImages=${downloadImages})`);
 
           // 이미지 작게 받기 체크박스 상태 확인
-          const smallImage = smallImageCheckbox ? smallImageCheckbox.classList.contains('checked') : false;
-          console.log(`[Renderer] 이미지 작게 받기 체크박스 상태: ${smallImage}`);
+          const smallImage = imageMode === 'small';
+          console.log(`[Renderer] smallImage: ${smallImage}`);
 
           console.log(`  - 저장 경로: ${savePath}`);
           addLog(`[경로] 저장 경로: ${savePath}`);

@@ -106,14 +106,11 @@
             <div class="checkbox" id="exclude-secret"></div>
             <label for="exclude-secret" id="exclude-secret-label" style="cursor: pointer; font-size: 12px; font-weight: 650; color: #aeb7ca;">비밀글 제외</label>
           </div>
-          <div class="checkbox-group" id="download-images-group">
-            <div class="checkbox checked" id="download-images"></div>
-            <label for="download-images" id="download-images-label" style="cursor: pointer; font-size: 12px; font-weight: 650; color: #aeb7ca;">이미지 다운로드</label>
-          </div>
-          <div class="checkbox-group" id="small-image-group">
-            <div class="checkbox" id="small-image"></div>
-            <label for="small-image" id="small-image-label" style="cursor: pointer; font-size: 12px; font-weight: 650; color: #aeb7ca;">이미지 작게 받기 (빠름)</label>
-          </div>
+          <select class="dropdown-select" id="image-mode">
+            <option value="small" selected>이미지: 작게(빠름)</option>
+            <option value="original">이미지: 원본</option>
+            <option value="off">이미지: 끄기</option>
+          </select>
         </div>
         <div class="form-row">
           <label class="form-label">리뷰 개수</label>
