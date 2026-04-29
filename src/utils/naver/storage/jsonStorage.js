@@ -32,30 +32,36 @@ export async function saveReviewsToJson(reviews, filename = 'reviews', customPat
     const uniqueReviews = removeDuplicateReviews(reviews);
     
     // 각 리뷰에 Page_Review 필드 추가 (엑셀과 동일하게)
+    // 1순위: review.Page_Review가 이미 채워져 있으면 그대로 사용 (extractor에서 100% 채움)
+    // 2순위: 사진 파일명에서 추출 (구버전 호환)
     const reviewsWithPageReview = uniqueReviews.map(review => {
-      // Page_Review 컬럼 값 생성 (이미지 파일명에서 페이지 정보 추출)
-      let pageReview = '';
-      if (Array.isArray(review.Photos) && review.Photos.length > 0) {
-        const firstPhoto = review.Photos[0];
-        // 파일명 형식: review_page{페이지번호}_{리뷰순서}_photo_{사진순서}.jpg
-        const match = firstPhoto.match(/review_page(\d+)_(\d+)_photo_/);
-        if (match) {
-          pageReview = `${match[1]}_${match[2]}`;
-        }
-      } else if (typeof review.Photos === 'string' && review.Photos.trim() !== '') {
-        const paths = review.Photos.split(',').map(p => p.trim()).filter(p => p);
-        if (paths.length > 0) {
-          const match = paths[0].match(/review_page(\d+)_(\d+)_photo_/);
+      let pageReview = review['Page_Review'] || '';
+
+      if (!pageReview) {
+        // 사진 파일명 폴백
+        if (Array.isArray(review.Photos) && review.Photos.length > 0) {
+          const firstPhoto = review.Photos[0];
+          // 파일명 형식: review_page{페이지번호}_{리뷰순서}_photo_{사진순서}.jpg
+          const match = firstPhoto.match(/review_page(\d+)_(\d+)_photo_/);
           if (match) {
             pageReview = `${match[1]}_${match[2]}`;
           }
+        } else if (typeof review.Photos === 'string' && review.Photos.trim() !== '') {
+          const paths = review.Photos.split(',').map(p => p.trim()).filter(p => p);
+          if (paths.length > 0) {
+            const match = paths[0].match(/review_page(\d+)_(\d+)_photo_/);
+            if (match) {
+              pageReview = `${match[1]}_${match[2]}`;
+            }
+          }
         }
       }
-      
-      // Page_Review 필드를 맨 앞에 추가
+
+      // Page_Review 필드를 맨 앞에 추가 (기존 review.Page_Review는 spread로 덮어씀 방지)
+      const { 'Page_Review': _ignore, ...rest } = review;
       return {
         'Page_Review': pageReview,
-        ...review
+        ...rest
       };
     });
     

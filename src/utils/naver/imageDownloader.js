@@ -10,18 +10,19 @@ import { URL } from 'url';
 /**
  * 이미지 URL에서 원본 URL 추출 (네이버 이미지 쿼리 파라미터 제거)
  * @param {string} photoUrl - 이미지 URL
+ * @param {boolean} keepQuery - true면 쿼리스트링을 보존 (작게 받기 모드에서 ?type=w480 유지용)
  * @returns {string} 처리된 원본 URL
  */
-function getOriginalImageUrl(photoUrl) {
+function getOriginalImageUrl(photoUrl, keepQuery = false) {
   if (!photoUrl) {
     return null;
   }
-  
+
   // 네이버 이미지 URL에서 파라미터 제거하여 원본 가져오기
   if (photoUrl.includes('pstatic.net')) {
-    return photoUrl.split('?')[0];
+    return keepQuery ? photoUrl : photoUrl.split('?')[0];
   }
-  
+
   return photoUrl;
 }
 
@@ -78,14 +79,16 @@ function downloadImage(imageUrl, timeout = 10000) {
  * @param {number} currentPage - 현재 페이지 번호
  * @param {number} reviewIndex - 리뷰 인덱스 (0부터 시작)
  * @param {number} photoIndex - 사진 인덱스 (0부터 시작)
+ * @param {object} options - 추가 옵션
+ * @param {boolean} options.keepQuery - true면 쿼리스트링 보존 (작게 받기 모드용, 기본 false)
  * @returns {Promise<string|null>} 저장된 이미지 파일 경로 또는 null
  */
-export async function downloadAndSaveReviewImage(imageUrl, photoFolderPath, currentPage, reviewIndex, photoIndex) {
+export async function downloadAndSaveReviewImage(imageUrl, photoFolderPath, currentPage, reviewIndex, photoIndex, options = {}) {
   try {
     console.log(`[ImageDownloader] 이미지 다운로드 시작: ${imageUrl}`);
-    
-    // 원본 URL 추출
-    const originalUrl = getOriginalImageUrl(imageUrl);
+
+    // 원본 URL 추출 (작게 받기 모드면 쿼리스트링 유지)
+    const originalUrl = getOriginalImageUrl(imageUrl, options.keepQuery === true);
     if (!originalUrl) {
       console.log(`[ImageDownloader] ⚠️ 유효하지 않은 이미지 URL`);
       return null;

@@ -106,20 +106,28 @@
             <div class="checkbox" id="exclude-secret"></div>
             <label for="exclude-secret" id="exclude-secret-label" style="cursor: pointer; font-size: 12px; font-weight: 650; color: #aeb7ca;">비밀글 제외</label>
           </div>
+          <div class="checkbox-group" id="download-images-group">
+            <div class="checkbox checked" id="download-images"></div>
+            <label for="download-images" id="download-images-label" style="cursor: pointer; font-size: 12px; font-weight: 650; color: #aeb7ca;">이미지 다운로드</label>
+          </div>
+          <div class="checkbox-group" id="small-image-group">
+            <div class="checkbox" id="small-image"></div>
+            <label for="small-image" id="small-image-label" style="cursor: pointer; font-size: 12px; font-weight: 650; color: #aeb7ca;">이미지 작게 받기 (빠름)</label>
+          </div>
         </div>
         <div class="form-row">
-          <label class="form-label">리뷰 페이지</label>
+          <label class="form-label">리뷰 개수</label>
           <div class="tag-group">
-            <button class="tag active" data-pages="0">5</button>
-            <button class="tag" data-pages="1">15</button>
-            <button class="tag" data-pages="2">50</button>
-            <button class="tag" data-pages="3">max</button>
+            <button class="tag active" data-pages="0">100개</button>
+            <button class="tag" data-pages="1">300개</button>
+            <button class="tag" data-pages="2">1000개</button>
+            <button class="tag" data-pages="3">전체</button>
             <button class="tag" data-pages="4">직접 입력</button>
           </div>
         </div>
         <div class="form-row" id="custom-pages-row" style="display: none;">
           <label class="form-label"></label>
-          <input type="number" class="input-box" id="custom-pages" placeholder="예: 120 (직접 입력 선택 시)" />
+          <input type="number" class="input-box" id="custom-pages" placeholder="예: 200 (개)" min="20" step="20" />
         </div>
         <div class="form-row">
           <label class="form-label">저장 경로</label>

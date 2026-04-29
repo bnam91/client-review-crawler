@@ -145,21 +145,25 @@ export async function saveReviewsToExcel(reviews, filename = 'reviews', customPa
     for (let i = 0; i < uniqueReviews.length; i++) {
       const review = uniqueReviews[i];
       
-      // Page_Review 컬럼 값 생성 (이미지 파일명에서 페이지 정보 추출)
-      let pageReview = '';
-      if (Array.isArray(review.Photos) && review.Photos.length > 0) {
-        const firstPhoto = review.Photos[0];
-        // 파일명 형식: review_page{페이지번호}_{리뷰순서}_photo_{사진순서}.jpg
-        const match = firstPhoto.match(/review_page(\d+)_(\d+)_photo_/);
-        if (match) {
-          pageReview = `${match[1]}_${match[2]}`;
-        }
-      } else if (typeof review.Photos === 'string' && review.Photos.trim() !== '') {
-        const paths = review.Photos.split(',').map(p => p.trim()).filter(p => p);
-        if (paths.length > 0) {
-          const match = paths[0].match(/review_page(\d+)_(\d+)_photo_/);
+      // Page_Review 컬럼 값 생성
+      // 1순위: extractor에서 채운 review.Page_Review (100% 채움 보장)
+      // 2순위: 이미지 파일명에서 페이지 정보 추출 (구버전 호환)
+      let pageReview = review['Page_Review'] || '';
+      if (!pageReview) {
+        if (Array.isArray(review.Photos) && review.Photos.length > 0) {
+          const firstPhoto = review.Photos[0];
+          // 파일명 형식: review_page{페이지번호}_{리뷰순서}_photo_{사진순서}.jpg
+          const match = firstPhoto.match(/review_page(\d+)_(\d+)_photo_/);
           if (match) {
             pageReview = `${match[1]}_${match[2]}`;
+          }
+        } else if (typeof review.Photos === 'string' && review.Photos.trim() !== '') {
+          const paths = review.Photos.split(',').map(p => p.trim()).filter(p => p);
+          if (paths.length > 0) {
+            const match = paths[0].match(/review_page(\d+)_(\d+)_photo_/);
+            if (match) {
+              pageReview = `${match[1]}_${match[2]}`;
+            }
           }
         }
       }

@@ -2,11 +2,11 @@
  * 네이버 플랫폼 전용 서비스
  */
 import { verifyNaverProductPageLoaded, waitForProductPageToLoad } from '../../src/utils/naver/productPageUtil.js';
-import { navigateToNaver, createNaverSearchUrl, isNaverProductPage, waitForNaverProductPage } from './naver/naverNavigation.js';
+import { navigateToNaver, createNaverSearchUrl, isNaverProductPage, waitForNaverProductPage, closeReviewModal } from './naver/naverNavigation.js';
 import { clickReviewOrQnATab } from './naver/naverTabActions.js';
 import { extractAllReviews } from './naver/naverReviewExtractor.js';
 import { extractAllQnAs } from './naver/naverQnAExtractor.js';
-import { navigateToNextPage, hasNextPage } from './naver/naverPagination.js';
+import { navigateToNextPage, hasNextPage, loadMoreReviews, getReviewCount } from './naver/naverPagination.js';
 import { navigateToNextQnAPage, hasNextQnAPage } from './naver/naverQnAPagination.js';
 import { saveReviews, saveReviewsToExcelChunk } from '../../src/utils/naver/storage/index.js';
 import { getStorageDirectory, resetSessionFolderName, setSessionFolderPrefix } from '../../src/utils/naver/storage/common.js';
@@ -47,7 +47,7 @@ function getMaxPages(pages, customPages = null) {
  * @param {boolean} excludeSecret - 비밀글 제외 여부 (Q&A 수집일 때만 사용)
  * @param {object} webContents - Electron webContents 객체 (로그 전송용)
  */
-export async function handleNaver(browser, page, input, isUrl, collectionType = 0, sort = 0, pages = 0, customPages = null, savePath = '', excludeSecret = false, webContents = null) {
+export async function handleNaver(browser, page, input, isUrl, collectionType = 0, sort = 0, pages = 0, customPages = null, savePath = '', excludeSecret = false, webContents = null, downloadImages = true, smallImage = false) {
   
   // 세션 폴더명 초기화 (새 크롤링 시작) 및 접두사 설정
   resetSessionFolderName();
@@ -92,56 +92,37 @@ export async function handleNaver(browser, page, input, isUrl, collectionType = 
     await newPage.bringToFront();
     
     console.log('[NaverService] 새 탭에서 URL로 이동 완료:', targetUrl);
-    
-    // 상품 페이지인지 확인하고 리뷰/Q&A 탭으로 이동
-    const currentUrl = newPage.url();
-    if (isNaverProductPage(currentUrl)) {
-      console.log('[NaverService] 상품 페이지 확인, 정상 로딩 확인 중...');
-      
-      // 상품 페이지 정상 로딩 확인
-      const verificationResult = await verifyNaverProductPageLoaded(newPage);
-      
-      if (!verificationResult.success) {
-        console.log(`[NaverService] ⚠️ 상품 페이지 로딩 실패: ${verificationResult.reason || '알 수 없는 오류'}`);
-        console.log('[NaverService] 에러 메시지가 사라지고 정상 로딩 요소가 나타날 때까지 대기 중...');
-        
-        // URL 기본 경로 추출 (파라미터 제거)
-        const baseUrl = currentUrl.split('?')[0];
-        
-        // 에러 메시지가 사라지고 정상 로딩 요소가 나타날 때까지 대기
-        // (캡챠 감지 시 로그만 표시하고 계속 대기)
-        const waitResult = await waitForProductPageToLoad(newPage, baseUrl, 60, sendLog);
-        
-        if (!waitResult.success) {
-          const errorMsg = `[NaverService] ⚠️ 상품 페이지 로딩 대기 실패: ${waitResult.reason || '알 수 없는 오류'}`;
-          console.log(errorMsg);
-          sendLog(errorMsg, 'warning');
-        } else {
-          const successMsg = '[NaverService] ✅ 상품 페이지 정상 로딩 확인 완료';
-          console.log(successMsg);
-          sendLog(successMsg, 'success');
-        }
-      } else {
-        // 성공 시 상품 제목과 가격 정보 출력
-        const logMessage1 = '[NaverProductPageUtil] ✅ 정상 로딩 요소가 나타났습니다.';
-        const logMessage2 = `[NaverProductPageUtil]   - 상품 제목: ${verificationResult.title || '(확인 불가)'}`;
-        const logMessage3 = `[NaverProductPageUtil]   - 상품 가격: ${verificationResult.price || '(확인 불가)'}`;
-        
-        console.log(logMessage1);
-        console.log(logMessage2);
-        console.log(logMessage3);
-        
-        if (sendLog) {
-          sendLog(logMessage1, 'success');
-          sendLog(logMessage2);
-          sendLog(logMessage3);
-        }
-        
-        const successMsg = '[NaverService] ✅ 상품 페이지 정상 로딩 확인 완료';
-        console.log(successMsg);
-        sendLog(successMsg, 'success');
+
+    // 로그인 페이지로 리다이렉트된 경우 사용자 로그인 대기 (영구 userDataDir이라 첫 1회만 필요)
+    let currentUrl = newPage.url();
+    if (currentUrl.includes('nid.naver.com/nidlogin') || currentUrl.includes('nid.naver.com/login')) {
+      console.log('[NaverService] 🔒 네이버 로그인 페이지 감지. 사용자 로그인 대기 중...');
+      sendLog('[안내] puppeteer Chrome 창에서 네이버 로그인을 완료해 주세요. (최대 5분 대기, 한 번 로그인하면 이후 자동 유지)', 'warning');
+      try {
+        await newPage.waitForFunction(
+          () => location.href.includes('/products/') && !location.href.includes('nid.naver.com'),
+          { timeout: 300000, polling: 1000 }
+        );
+        currentUrl = newPage.url();
+        console.log('[NaverService] ✅ 로그인 완료, 상품 페이지 도착:', currentUrl);
+        sendLog('[안내] 로그인 완료. 크롤링을 계속합니다.', 'success');
+      } catch (e) {
+        sendLog('[오류] 로그인 대기 시간 초과 (5분). 다시 시도해 주세요.', 'error');
+        throw e;
       }
-      
+    }
+
+    // 상품 페이지인지 확인하고 리뷰/Q&A 탭으로 이동
+    if (isNaverProductPage(currentUrl)) {
+      // URL 모드 + /products/ 포함이면 verify 단계 자체를 스킵 (모달 진입에서 자체 검증되니 redundant)
+      // 옛 페이지 구조 셀렉터로 verifyNaverProductPageLoaded가 항상 실패하여
+      // waitForProductPageToLoad(60초)를 끝까지 기다리는 비효율 우회.
+      if (currentUrl.includes('/products/')) {
+        const skipMsg = '[NaverService] ✅ /products/ URL 확인 — verify 단계 스킵, 모달 진입에서 자체 검증';
+        console.log(skipMsg);
+        sendLog(skipMsg, 'info');
+      }
+
       const sortNames = ['랭킹순', '최신순', '평점낮은순'];
       console.log(`[NaverService] clickReviewOrQnATab 호출 - collectionType: ${collectionType}, sort: ${sort} (${sortNames[sort] || '알 수 없음'})`);
       sendLog(`[진행] 리뷰/Q&A 탭으로 이동 중...`, 'info');
@@ -277,111 +258,74 @@ export async function handleNaver(browser, page, input, isUrl, collectionType = 
       
       if (collectionType === 0) {
         const maxPages = getMaxPages(pages, customPages);
-        const maxPagesText = maxPages === Infinity ? '무제한' : `${maxPages}페이지`;
-        console.log(`[NaverService] 리뷰 추출 시작... (최대 ${maxPagesText})`);
-        sendLog(`[시작] 리뷰 추출 시작 (최대 ${maxPagesText})`, 'info');
-        
+        const targetCount = maxPages === Infinity ? Infinity : maxPages * 20;
+        const targetText = targetCount === Infinity ? '무제한' : `약 ${targetCount}개`;
+        console.log(`[NaverService] 리뷰 추출 시작... (목표 ${targetText})`);
+        sendLog(`[시작] 리뷰 추출 시작 (목표 ${targetText})`, 'info');
+
         // 이미지 저장 경로 설정 (엑셀 파일과 동일한 폴더)
         const photoFolderPath = getStorageDirectory(savePath);
-        
+
         let excelChunkCount = 0; // Excel 청크 개수 추적
-        let currentPage = 1;
-        while (currentPage <= maxPages) {
-          console.log(`[NaverService] 📄 페이지 ${currentPage} 크롤링 중...`);
-          sendLog(`[진행] 리뷰 페이지 ${currentPage}/${maxPages === Infinity ? '?' : maxPages} 크롤링 중...`, 'info', true);
-          const pageReviews = await extractAllReviews(newPage, photoFolderPath, currentPage);
-          allReviews = allReviews.concat(pageReviews);
-          chunkReviews = chunkReviews.concat(pageReviews);
-          console.log(`[NaverService] ✅ 페이지 ${currentPage}: ${pageReviews.length}개 리뷰 추출 (누적: ${allReviews.length}개)`);
-          sendLog(`[완료] 페이지 ${currentPage}: ${pageReviews.length}개 리뷰 추출 (누적: ${allReviews.length}개)`, 'success');
-          
-          // 50페이지마다 Excel 청크 저장
-          if (currentPage % CHUNK_SIZE === 0 && chunkReviews.length > 0) {
-            try {
-              console.log(`[NaverService] 📦 ${CHUNK_SIZE}페이지 단위 청크 저장 (청크 ${chunkCount})`);
-              sendLog(`[진행] ${CHUNK_SIZE}페이지 단위 청크 저장 중 (청크 ${chunkCount})...`, 'info', true);
-              const chunkPath = await saveReviewsToExcelChunk(chunkReviews, 'naver_reviews', savePath, chunkCount);
-              if (chunkPath) {
-                console.log(`[NaverService] ✅ 청크 ${chunkCount} 저장 완료: ${chunkPath}`);
-                sendLog(`[완료] 청크 ${chunkCount} 저장 완료`, 'success');
-                excelChunkCount++;
-              }
-              chunkReviews = []; // 청크 리뷰 초기화
-              chunkCount++;
-            } catch (error) {
-              console.error(`[NaverService] ❌ 청크 저장 실패: ${error.message}`);
-              sendLog(`[오류] 청크 저장 실패: ${error.message}`, 'error');
-            }
-          }
-          
-          // 마지막 페이지가 아니고 다음 페이지가 있으면 이동
-          if (currentPage < maxPages) {
-            const hasNext = await hasNextPage(newPage);
-            if (!hasNext) {
-              console.log(`[NaverService] ⚠️ 다음 페이지가 없어 크롤링을 종료합니다.`);
-              sendLog(`[종료] 다음 페이지가 없어 크롤링을 종료합니다.`, 'warning');
-              break;
-            }
-            
-            sendLog(`[진행] 페이지 ${currentPage + 1}로 이동 중...`, 'info', true);
-            const nextPageSuccess = await navigateToNextPage(newPage, currentPage + 1);
-            if (!nextPageSuccess) {
-              console.log(`[NaverService] ⚠️ 페이지 ${currentPage + 1}로 이동 실패. 크롤링을 종료합니다.`);
-              sendLog(`[오류] 페이지 ${currentPage + 1}로 이동 실패. 크롤링을 종료합니다.`, 'error');
-              break;
-            }
-          }
-          
-          currentPage++;
+
+        // 무한 스크롤로 모달 내 리뷰 로드
+        sendLog(`[진행] 모달 무한 스크롤로 리뷰 로딩 중...`, 'info', true);
+        const finalCount = await loadMoreReviews(newPage, targetCount);
+        console.log(`[NaverService] 📊 모달 내 최종 리뷰 개수: ${finalCount}`);
+        sendLog(`[진행] 모달 내 ${finalCount}개 리뷰 로드 완료. 추출 시작...`, 'info', true);
+
+        // 모달 내 모든 리뷰 추출
+        const pageReviews = await extractAllReviews(newPage, photoFolderPath, 1, { downloadImages, smallImage, sendLog });
+        allReviews = allReviews.concat(pageReviews);
+        chunkReviews = chunkReviews.concat(pageReviews);
+        console.log(`[NaverService] ✅ ${pageReviews.length}개 리뷰 추출`);
+        sendLog(`[완료] ${pageReviews.length}개 리뷰 추출`, 'success');
+
+        // 리뷰 추출 후 모달 닫기
+        try {
+          await closeReviewModal(newPage);
+        } catch (e) {
+          console.log(`[NaverService] ⚠️ 모달 닫기 실패: ${e.message}`);
         }
-        
-        // 마지막 남은 청크 저장 (50페이지 단위가 아닌 경우)
+
+        // 마지막 남은 청크 저장
         if (chunkReviews.length > 0) {
           try {
-            console.log(`[NaverService] 📦 마지막 청크 저장 (청크 ${chunkCount}, ${chunkReviews.length}개 리뷰)`);
-            sendLog(`[진행] 마지막 청크 저장 중 (청크 ${chunkCount})...`, 'info', true);
+            console.log(`[NaverService] 📦 청크 저장 (청크 ${chunkCount}, ${chunkReviews.length}개 리뷰)`);
+            sendLog(`[진행] 청크 저장 중 (청크 ${chunkCount})...`, 'info', true);
             const chunkPath = await saveReviewsToExcelChunk(chunkReviews, 'naver_reviews', savePath, chunkCount);
             if (chunkPath) {
-              console.log(`[NaverService] ✅ 마지막 청크 ${chunkCount} 저장 완료: ${chunkPath}`);
-              sendLog(`[완료] 마지막 청크 ${chunkCount} 저장 완료`, 'success');
+              console.log(`[NaverService] ✅ 청크 ${chunkCount} 저장 완료: ${chunkPath}`);
+              sendLog(`[완료] 청크 ${chunkCount} 저장 완료`, 'success');
               excelChunkCount++;
             }
           } catch (error) {
-            console.error(`[NaverService] ❌ 마지막 청크 저장 실패: ${error.message}`);
-            sendLog(`[오류] 마지막 청크 저장 실패: ${error.message}`, 'error');
+            console.error(`[NaverService] ❌ 청크 저장 실패: ${error.message}`);
+            sendLog(`[오류] 청크 저장 실패: ${error.message}`, 'error');
           }
         }
-        
+
         console.log(`[NaverService] ✅ 총 ${allReviews.length}개의 리뷰를 추출했습니다.`);
         sendLog(`[완료] 총 ${allReviews.length}개의 리뷰를 추출했습니다.`, 'success');
-        
+
         // 리뷰 데이터 저장 (JSON은 전체 저장, Excel은 이미 청크로 저장됨)
-        let finalSavePath = null;
         let jsonFileCount = 0; // JSON 파일 개수 추적
-        
+
         if (allReviews.length > 0) {
           try {
-            // Excel을 제외하고 저장 (Excel은 이미 청크로 저장됨)
             sendLog(`[진행] 최종 리뷰 데이터 저장 중...`, 'info', true);
             const savedPaths = await saveReviews(allReviews, 'naver_reviews', savePath);
-            
-            // JSON 파일 개수 세기
+
             jsonFileCount = savedPaths.filter(path => path.endsWith('.json')).length;
-            
+
             if (savedPaths.length > 0) {
               console.log(`[NaverService] 📁 리뷰 데이터 저장 완료: ${savedPaths.join(', ')}`);
               sendLog(`[완료] 최종 리뷰 데이터 저장 완료`, 'success');
-              
-              // 저장된 파일 개수 더블체크
               sendLog(`[확인] 저장 완료: JSON ${jsonFileCount}개, Excel ${excelChunkCount}개`, 'success');
-              
-              // 저장 경로 가져오기 (폴더 열기용)
               finalSavePath = getStorageDirectory(savePath);
             } else {
               console.log(`[NaverService] ⚠️ 저장할 형식이 설정되지 않았습니다. config.js를 확인하세요.`);
               sendLog(`[경고] 저장할 형식이 설정되지 않았습니다.`, 'warning');
-              
-              // Excel만 저장된 경우
               if (excelChunkCount > 0) {
                 sendLog(`[확인] 저장 완료: JSON 0개, Excel ${excelChunkCount}개`, 'success');
               }
@@ -391,13 +335,12 @@ export async function handleNaver(browser, page, input, isUrl, collectionType = 
             sendLog(`[오류] 리뷰 데이터 저장 실패: ${error.message}`, 'error');
           }
         } else {
-          // 리뷰가 없어도 Excel 청크가 있을 수 있음
           if (excelChunkCount > 0) {
             sendLog(`[확인] 저장 완료: JSON 0개, Excel ${excelChunkCount}개`, 'success');
           }
         }
       }
-      
+
       // 최종 완료 메시지 (총 추출 개수 포함)
       let finalCountMessage = '';
       if (collectionType === 0) {
@@ -629,111 +572,74 @@ export async function handleNaver(browser, page, input, isUrl, collectionType = 
       
       if (collectionType === 0) {
         const maxPages = getMaxPages(pages, customPages);
-        const maxPagesText = maxPages === Infinity ? '무제한' : `${maxPages}페이지`;
-        console.log(`[NaverService] 리뷰 추출 시작... (최대 ${maxPagesText})`);
-        sendLog(`[시작] 리뷰 추출 시작 (최대 ${maxPagesText})`, 'info');
-        
+        const targetCount = maxPages === Infinity ? Infinity : maxPages * 20;
+        const targetText = targetCount === Infinity ? '무제한' : `약 ${targetCount}개`;
+        console.log(`[NaverService] 리뷰 추출 시작... (목표 ${targetText})`);
+        sendLog(`[시작] 리뷰 추출 시작 (목표 ${targetText})`, 'info');
+
         // 이미지 저장 경로 설정 (엑셀 파일과 동일한 폴더)
         const photoFolderPath = getStorageDirectory(savePath);
-        
+
         let excelChunkCount = 0; // Excel 청크 개수 추적
-        let currentPage = 1;
-        while (currentPage <= maxPages) {
-          console.log(`[NaverService] 📄 페이지 ${currentPage} 크롤링 중...`);
-          sendLog(`[진행] 리뷰 페이지 ${currentPage}/${maxPages === Infinity ? '?' : maxPages} 크롤링 중...`, 'info', true);
-          const pageReviews = await extractAllReviews(productPage, photoFolderPath, currentPage);
-          allReviews = allReviews.concat(pageReviews);
-          chunkReviews = chunkReviews.concat(pageReviews);
-          console.log(`[NaverService] ✅ 페이지 ${currentPage}: ${pageReviews.length}개 리뷰 추출 (누적: ${allReviews.length}개)`);
-          sendLog(`[완료] 페이지 ${currentPage}: ${pageReviews.length}개 리뷰 추출 (누적: ${allReviews.length}개)`, 'success');
-          
-          // 50페이지마다 Excel 청크 저장
-          if (currentPage % CHUNK_SIZE === 0 && chunkReviews.length > 0) {
-            try {
-              console.log(`[NaverService] 📦 ${CHUNK_SIZE}페이지 단위 청크 저장 (청크 ${chunkCount})`);
-              sendLog(`[진행] ${CHUNK_SIZE}페이지 단위 청크 저장 중 (청크 ${chunkCount})...`, 'info', true);
-              const chunkPath = await saveReviewsToExcelChunk(chunkReviews, 'naver_reviews', savePath, chunkCount);
-              if (chunkPath) {
-                console.log(`[NaverService] ✅ 청크 ${chunkCount} 저장 완료: ${chunkPath}`);
-                sendLog(`[완료] 청크 ${chunkCount} 저장 완료`, 'success');
-                excelChunkCount++;
-              }
-              chunkReviews = []; // 청크 리뷰 초기화
-              chunkCount++;
-            } catch (error) {
-              console.error(`[NaverService] ❌ 청크 저장 실패: ${error.message}`);
-              sendLog(`[오류] 청크 저장 실패: ${error.message}`, 'error');
-            }
-          }
-          
-          // 마지막 페이지가 아니고 다음 페이지가 있으면 이동
-          if (currentPage < maxPages) {
-            const hasNext = await hasNextPage(productPage);
-            if (!hasNext) {
-              console.log(`[NaverService] ⚠️ 다음 페이지가 없어 크롤링을 종료합니다.`);
-              sendLog(`[종료] 다음 페이지가 없어 크롤링을 종료합니다.`, 'warning');
-              break;
-            }
-            
-            sendLog(`[진행] 페이지 ${currentPage + 1}로 이동 중...`, 'info', true);
-            const nextPageSuccess = await navigateToNextPage(productPage, currentPage + 1);
-            if (!nextPageSuccess) {
-              console.log(`[NaverService] ⚠️ 페이지 ${currentPage + 1}로 이동 실패. 크롤링을 종료합니다.`);
-              sendLog(`[오류] 페이지 ${currentPage + 1}로 이동 실패. 크롤링을 종료합니다.`, 'error');
-              break;
-            }
-          }
-          
-          currentPage++;
+
+        // 무한 스크롤로 모달 내 리뷰 로드
+        sendLog(`[진행] 모달 무한 스크롤로 리뷰 로딩 중...`, 'info', true);
+        const finalCount = await loadMoreReviews(productPage, targetCount);
+        console.log(`[NaverService] 📊 모달 내 최종 리뷰 개수: ${finalCount}`);
+        sendLog(`[진행] 모달 내 ${finalCount}개 리뷰 로드 완료. 추출 시작...`, 'info', true);
+
+        // 모달 내 모든 리뷰 추출
+        const pageReviews = await extractAllReviews(productPage, photoFolderPath, 1, { downloadImages, smallImage, sendLog });
+        allReviews = allReviews.concat(pageReviews);
+        chunkReviews = chunkReviews.concat(pageReviews);
+        console.log(`[NaverService] ✅ ${pageReviews.length}개 리뷰 추출`);
+        sendLog(`[완료] ${pageReviews.length}개 리뷰 추출`, 'success');
+
+        // 리뷰 추출 후 모달 닫기
+        try {
+          await closeReviewModal(productPage);
+        } catch (e) {
+          console.log(`[NaverService] ⚠️ 모달 닫기 실패: ${e.message}`);
         }
-        
-        // 마지막 남은 청크 저장 (50페이지 단위가 아닌 경우)
+
+        // 마지막 남은 청크 저장
         if (chunkReviews.length > 0) {
           try {
-            console.log(`[NaverService] 📦 마지막 청크 저장 (청크 ${chunkCount}, ${chunkReviews.length}개 리뷰)`);
-            sendLog(`[진행] 마지막 청크 저장 중 (청크 ${chunkCount})...`, 'info', true);
+            console.log(`[NaverService] 📦 청크 저장 (청크 ${chunkCount}, ${chunkReviews.length}개 리뷰)`);
+            sendLog(`[진행] 청크 저장 중 (청크 ${chunkCount})...`, 'info', true);
             const chunkPath = await saveReviewsToExcelChunk(chunkReviews, 'naver_reviews', savePath, chunkCount);
             if (chunkPath) {
-              console.log(`[NaverService] ✅ 마지막 청크 ${chunkCount} 저장 완료: ${chunkPath}`);
-              sendLog(`[완료] 마지막 청크 ${chunkCount} 저장 완료`, 'success');
+              console.log(`[NaverService] ✅ 청크 ${chunkCount} 저장 완료: ${chunkPath}`);
+              sendLog(`[완료] 청크 ${chunkCount} 저장 완료`, 'success');
               excelChunkCount++;
             }
           } catch (error) {
-            console.error(`[NaverService] ❌ 마지막 청크 저장 실패: ${error.message}`);
-            sendLog(`[오류] 마지막 청크 저장 실패: ${error.message}`, 'error');
+            console.error(`[NaverService] ❌ 청크 저장 실패: ${error.message}`);
+            sendLog(`[오류] 청크 저장 실패: ${error.message}`, 'error');
           }
         }
-        
+
         console.log(`[NaverService] ✅ 총 ${allReviews.length}개의 리뷰를 추출했습니다.`);
         sendLog(`[완료] 총 ${allReviews.length}개의 리뷰를 추출했습니다.`, 'success');
-        
+
         // 리뷰 데이터 저장 (JSON은 전체 저장, Excel은 이미 청크로 저장됨)
-        let finalSavePath = null;
         let jsonFileCount = 0; // JSON 파일 개수 추적
-        
+
         if (allReviews.length > 0) {
           try {
-            // Excel을 제외하고 저장 (Excel은 이미 청크로 저장됨)
             sendLog(`[진행] 최종 리뷰 데이터 저장 중...`, 'info', true);
             const savedPaths = await saveReviews(allReviews, 'naver_reviews', savePath);
-            
-            // JSON 파일 개수 세기
+
             jsonFileCount = savedPaths.filter(path => path.endsWith('.json')).length;
-            
+
             if (savedPaths.length > 0) {
               console.log(`[NaverService] 📁 리뷰 데이터 저장 완료: ${savedPaths.join(', ')}`);
               sendLog(`[완료] 최종 리뷰 데이터 저장 완료`, 'success');
-              
-              // 저장된 파일 개수 더블체크
               sendLog(`[확인] 저장 완료: JSON ${jsonFileCount}개, Excel ${excelChunkCount}개`, 'success');
-              
-              // 저장 경로 가져오기 (폴더 열기용)
               finalSavePath = getStorageDirectory(savePath);
             } else {
               console.log(`[NaverService] ⚠️ 저장할 형식이 설정되지 않았습니다. config.js를 확인하세요.`);
               sendLog(`[경고] 저장할 형식이 설정되지 않았습니다.`, 'warning');
-              
-              // Excel만 저장된 경우
               if (excelChunkCount > 0) {
                 sendLog(`[확인] 저장 완료: JSON 0개, Excel ${excelChunkCount}개`, 'success');
               }

@@ -43,10 +43,10 @@ try {
     },
     
     // 브라우저에서 URL 열기 (플랫폼/수집타입/정렬/페이지 정보 포함)
-    openUrlInBrowser: async (url, platform = 0, collectionType = 0, sort = 0, pages = 0, customPages = null, savePath = '', openFolder = false, excludeSecret = false) => {
-      console.log('[Preload] openUrlInBrowser called with URL:', url, 'Platform:', platform, 'CollectionType:', collectionType, 'Sort:', sort, 'Pages:', pages, 'CustomPages:', customPages, 'SavePath:', savePath, 'OpenFolder:', openFolder, 'ExcludeSecret:', excludeSecret);
+    openUrlInBrowser: async (url, platform = 0, collectionType = 0, sort = 0, pages = 0, customPages = null, savePath = '', openFolder = false, excludeSecret = false, downloadImages = true, smallImage = false) => {
+      console.log('[Preload] openUrlInBrowser called with URL:', url, 'Platform:', platform, 'CollectionType:', collectionType, 'Sort:', sort, 'Pages:', pages, 'CustomPages:', customPages, 'SavePath:', savePath, 'OpenFolder:', openFolder, 'ExcludeSecret:', excludeSecret, 'DownloadImages:', downloadImages, 'SmallImage:', smallImage);
       try {
-        const result = await ipcRenderer.invoke('open-url-in-browser', url, platform, collectionType, sort, pages, customPages, savePath, openFolder, excludeSecret);
+        const result = await ipcRenderer.invoke('open-url-in-browser', url, platform, collectionType, sort, pages, customPages, savePath, openFolder, excludeSecret, downloadImages, smallImage);
         console.log('[Preload] openUrlInBrowser result:', result);
         return result;
       } catch (error) {
@@ -126,6 +126,8 @@ try {
     licenseCreateKey: (plan, memo) => ipcRenderer.invoke('license-create-key', plan, memo),
     // 라이선스 - 키 목록 조회 (root 전용)
     licenseListKeys: () => ipcRenderer.invoke('license-list-keys'),
+    // 개발 모드 여부 (dev 모드에선 라이선스 체크 우회용)
+    isDev: process.env.NODE_ENV === 'development',
   });
   console.log('[Preload] electronAPI exposed successfully');
 } catch (error) {

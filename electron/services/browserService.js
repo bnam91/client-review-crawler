@@ -109,8 +109,10 @@ function isUrl(input) {
  * @param {boolean} openFolder - 크롤링 완료 후 폴더 열기 여부
  * @param {boolean} excludeSecret - 비밀글 제외 여부 (Q&A 수집일 때만 사용)
  * @param {object} webContents - Electron webContents 객체 (로그 전송용)
+ * @param {boolean} downloadImages - 리뷰 이미지 다운로드 여부 (기본 true)
+ * @param {boolean} smallImage - 이미지 작게 받기 여부 (기본 false, true면 480px 작은 이미지 다운로드)
  */
-export async function openUrlInBrowser(input, platform = 0, collectionType = 0, sort = 0, pages = 0, customPages = null, savePath = '', openFolder = false, excludeSecret = false, webContents = null) {
+export async function openUrlInBrowser(input, platform = 0, collectionType = 0, sort = 0, pages = 0, customPages = null, savePath = '', openFolder = false, excludeSecret = false, webContents = null, downloadImages = true, smallImage = false) {
   let browser = null;
   
   try {
@@ -149,11 +151,21 @@ export async function openUrlInBrowser(input, platform = 0, collectionType = 0, 
       console.log(`[BrowserService] Pages: ${pageMap[pages] || pages} (값: ${pages}, 실제: ${maxPages === Infinity ? '무제한' : maxPages}페이지)`);
     }
     
+    // puppeteer 영구 user-data-dir (네이버 로그인 세션 유지용)
+    // 첫 실행 시 사용자가 한 번만 직접 로그인하면 이후 자동 유지
+    const { app: electronApp } = await import('electron');
+    const path = await import('path');
+    const fs = await import('fs/promises');
+    const userDataDir = path.join(electronApp.getPath('userData'), 'puppeteer-chrome-profile');
+    try { await fs.mkdir(userDataDir, { recursive: true }); } catch {}
+    console.log('[BrowserService] puppeteer userDataDir:', userDataDir);
+
     // puppeteer-core로 브라우저 실행
     browser = await puppeteer.launch({
       executablePath: chromePath,
       headless: false, // 브라우저 창을 표시
       defaultViewport: null,
+      userDataDir,
       args: [
         '--start-maximized', // 최대화된 상태로 시작
         '--disable-blink-features=AutomationControlled', // 자동화 감지 방지
@@ -266,7 +278,7 @@ export async function openUrlInBrowser(input, platform = 0, collectionType = 0, 
       result = await handleCoupang(browser, page, input, inputIsUrl, collectionType, sort, pages, customPages, savePath, excludeSecret, webContents);
     } else {
       // 네이버 플랫폼 처리 (기본값)
-      result = await handleNaver(browser, page, input, inputIsUrl, collectionType, sort, pages, customPages, savePath, excludeSecret, webContents);
+      result = await handleNaver(browser, page, input, inputIsUrl, collectionType, sort, pages, customPages, savePath, excludeSecret, webContents, downloadImages, smallImage);
     }
     
     // 크롤링 완료 후 폴더 열기

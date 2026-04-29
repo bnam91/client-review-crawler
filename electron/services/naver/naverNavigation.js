@@ -1,6 +1,117 @@
 /**
  * 네이버 네비게이션 관련 함수들
  */
+import { REVIEW } from './naverSelectors.js';
+
+/**
+ * 페이지를 천천히 스크롤하여 리뷰 영역이 보이도록 함
+ * @param {object} page - Puppeteer page 객체
+ */
+async function scrollUntilOpenButtonVisible(page) {
+  console.log('[NaverNavigation] 📜 "리뷰 전체보기" 버튼이 보일 때까지 스크롤 중...');
+  await page.evaluate(async (openText) => {
+    const isVisible = () => {
+      const buttons = Array.from(document.querySelectorAll('button'));
+      return buttons.some(b => (b.textContent || '').trim() === openText);
+    };
+
+    let lastScrollY = -1;
+    let stableCount = 0;
+    for (let i = 0; i < 30; i++) {
+      if (isVisible()) return true;
+      window.scrollBy(0, Math.floor(window.innerHeight * 0.8));
+      await new Promise(r => setTimeout(r, 400));
+      if (window.scrollY === lastScrollY) {
+        stableCount++;
+        if (stableCount >= 3) break;
+      } else {
+        stableCount = 0;
+        lastScrollY = window.scrollY;
+      }
+    }
+    return isVisible();
+  }, REVIEW.openModalButtonText);
+}
+
+/**
+ * "리뷰 전체보기" 버튼을 찾아 클릭하고 리뷰 모달 dialog가 등장할 때까지 대기
+ * @param {object} page - Puppeteer page 객체
+ * @param {number} timeoutMs - 모달 대기 타임아웃 (기본 10초)
+ * @returns {Promise<boolean>} 모달 표출 성공 여부
+ */
+export async function openReviewModal(page, timeoutMs = 10000) {
+  console.log('[NaverNavigation] 🔎 "리뷰 전체보기" 버튼을 찾는 중...');
+
+  // 1. 페이지 스크롤로 버튼 노출
+  await scrollUntilOpenButtonVisible(page);
+
+  // 2. 버튼 클릭 (텍스트 매칭)
+  const clicked = await page.evaluate((openText) => {
+    const buttons = Array.from(document.querySelectorAll('button'));
+    const btn = buttons.find(b => (b.textContent || '').trim() === openText);
+    if (btn) {
+      btn.click();
+      return true;
+    }
+    return false;
+  }, REVIEW.openModalButtonText);
+
+  if (!clicked) {
+    console.log('[NaverNavigation] ❌ "리뷰 전체보기" 버튼을 찾지 못했습니다.');
+    return false;
+  }
+
+  console.log('[NaverNavigation] ✅ "리뷰 전체보기" 버튼 클릭 완료. 모달 대기 중...');
+
+  // 3. role="dialog" 중 li[id^="REVIEW_ITEM_"] 가진 dialog가 등장할 때까지 폴링
+  const start = Date.now();
+  const pollInterval = 300;
+  while (Date.now() - start < timeoutMs) {
+    const exists = await page.evaluate(() => {
+      const dialogs = Array.from(document.querySelectorAll('[role="dialog"]'));
+      return dialogs.some(d => d.querySelector('li[id^="REVIEW_ITEM_"]'));
+    });
+    if (exists) {
+      console.log('[NaverNavigation] ✅ 리뷰 모달이 표시되었습니다.');
+      return true;
+    }
+    await new Promise(resolve => setTimeout(resolve, pollInterval));
+  }
+
+  console.log('[NaverNavigation] ❌ 리뷰 모달이 시간 내에 나타나지 않았습니다.');
+  return false;
+}
+
+/**
+ * 리뷰 모달을 닫고 사라질 때까지 대기
+ * @param {object} page - Puppeteer page 객체
+ * @param {number} timeoutMs - 대기 타임아웃 (기본 5초)
+ */
+export async function closeReviewModal(page, timeoutMs = 5000) {
+  console.log('[NaverNavigation] 🚪 리뷰 모달 닫기 시도...');
+
+  await page.evaluate((closeSel) => {
+    const btn = document.querySelector(closeSel);
+    if (btn) btn.click();
+  }, REVIEW.closeButtonSelector);
+
+  const start = Date.now();
+  const pollInterval = 200;
+  while (Date.now() - start < timeoutMs) {
+    const stillOpen = await page.evaluate(() => {
+      const dialogs = Array.from(document.querySelectorAll('[role="dialog"]'));
+      return dialogs.some(d => d.querySelector('li[id^="REVIEW_ITEM_"]'));
+    });
+    if (!stillOpen) {
+      console.log('[NaverNavigation] ✅ 리뷰 모달이 닫혔습니다.');
+      return true;
+    }
+    await new Promise(resolve => setTimeout(resolve, pollInterval));
+  }
+
+  console.log('[NaverNavigation] ⚠️ 리뷰 모달 닫힘을 확인하지 못했습니다.');
+  return false;
+}
 
 /**
  * 네이버 메인 페이지로 이동하고 검색 입력 필드가 나타날 때까지 대기
@@ -9,9 +120,9 @@ export async function navigateToNaver(page) {
   console.log('[NaverNavigation] 네이버 메인 페이지로 이동 중...');
   
   // 1. 네이버 메인 페이지로 이동 (네트워크 안정화까지 대기)
-  await page.goto('https://www.naver.com', { 
-    waitUntil: 'networkidle2',
-    timeout: 30000
+  await page.goto('https://www.naver.com', {
+    waitUntil: 'domcontentloaded',
+    timeout: 60000
   });
   
   console.log('[NaverNavigation] 네이버 메인 페이지 로드 완료');

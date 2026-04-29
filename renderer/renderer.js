@@ -65,6 +65,38 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
+  // 이미지 다운로드 체크박스 (기본 checked)
+  const downloadImagesCheckbox = document.getElementById('download-images');
+  const downloadImagesLabel = document.getElementById('download-images-label');
+  if (downloadImagesCheckbox) {
+    downloadImagesCheckbox.addEventListener('click', () => {
+      downloadImagesCheckbox.classList.toggle('checked');
+    });
+  }
+  if (downloadImagesLabel) {
+    downloadImagesLabel.addEventListener('click', () => {
+      if (downloadImagesCheckbox) {
+        downloadImagesCheckbox.classList.toggle('checked');
+      }
+    });
+  }
+
+  // 이미지 작게 받기 체크박스 (기본 unchecked — 원본 화질 유지가 default)
+  const smallImageCheckbox = document.getElementById('small-image');
+  const smallImageLabel = document.getElementById('small-image-label');
+  if (smallImageCheckbox) {
+    smallImageCheckbox.addEventListener('click', () => {
+      smallImageCheckbox.classList.toggle('checked');
+    });
+  }
+  if (smallImageLabel) {
+    smallImageLabel.addEventListener('click', () => {
+      if (smallImageCheckbox) {
+        smallImageCheckbox.classList.toggle('checked');
+      }
+    });
+  }
+
   // 플랫폼 토글 버튼
   const platformToggleBtn = document.getElementById('platform-toggle-btn');
   const platformNameElement = document.getElementById('platform-name');
@@ -480,15 +512,15 @@ document.addEventListener('DOMContentLoaded', () => {
           console.log(`  - 정렬: ${sortNames[state.sort]} (값: ${state.sort})`);
           console.log(`  - 페이지: ${pageNames[state.pages]} (값: ${state.pages})`);
           
-          // 직접 입력인 경우 입력값 가져오기
+          // 직접 입력인 경우 입력값 가져오기 (UI는 "개수" 단위, IPC는 "페이지" 단위 → 변환)
           let customPages = null;
           if (state.pages === 4 && customPagesInput) {
-            const customValue = parseInt(customPagesInput.value);
-            if (!isNaN(customValue) && customValue > 0) {
-              customPages = customValue;
-              console.log(`  - 직접 입력 페이지 수: ${customPages}`);
+            const customCount = parseInt(customPagesInput.value);
+            if (!isNaN(customCount) && customCount > 0) {
+              customPages = Math.max(1, Math.ceil(customCount / 20)); // 20개 단위로 올림
+              console.log(`  - 직접 입력 개수: ${customCount}개 → ${customPages}페이지 (내부 단위)`);
             } else {
-              showModal('직접 입력 페이지 수를 올바르게 입력해주세요.');
+              showModal('직접 입력 개수를 올바르게 입력해주세요.');
               return;
             }
           }
@@ -517,13 +549,21 @@ document.addEventListener('DOMContentLoaded', () => {
           // 비밀글 제외 체크박스 상태 확인 (Q&A 수집일 때만)
           const excludeSecret = excludeSecretCheckbox && excludeSecretCheckbox.classList.contains('checked');
           console.log(`[Renderer] 비밀글 제외 체크박스 상태: ${excludeSecret}`);
-          
+
+          // 이미지 다운로드 체크박스 상태 확인 (리뷰 수집일 때 사용)
+          const downloadImages = downloadImagesCheckbox ? downloadImagesCheckbox.classList.contains('checked') : true;
+          console.log(`[Renderer] 이미지 다운로드 체크박스 상태: ${downloadImages}`);
+
+          // 이미지 작게 받기 체크박스 상태 확인
+          const smallImage = smallImageCheckbox ? smallImageCheckbox.classList.contains('checked') : false;
+          console.log(`[Renderer] 이미지 작게 받기 체크박스 상태: ${smallImage}`);
+
           console.log(`  - 저장 경로: ${savePath}`);
           addLog(`[경로] 저장 경로: ${savePath}`);
-          
+
           addLog(`[브라우저] ${url}를 브라우저에서 엽니다...`);
           showStatusMessage('브라우저를 열고 있습니다...', 'info');
-          const result = await window.electronAPI.openUrlInBrowser(url, state.platform, state.collectionType, state.sort, state.pages, customPages, savePath, openFolder, excludeSecret);
+          const result = await window.electronAPI.openUrlInBrowser(url, state.platform, state.collectionType, state.sort, state.pages, customPages, savePath, openFolder, excludeSecret, downloadImages, smallImage);
           if (result.success) {
             addLog(`[브라우저] 브라우저에서 URL을 열었습니다.`);
             showStatusMessage('브라우저에서 URL을 열었습니다.', 'success');
@@ -575,7 +615,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const platformNames = ['네이버', '쿠팡'];
     const collectionTypeNames = ['리뷰 수집', 'Q&A 수집', '리뷰 + Q&A 수집'];
     const sortNames = state.platform === 1 ? ['베스트순', '최신순'] : ['랭킹순', '최신순', '평점낮은순'];
-    const pageNames = ['5', '15', '50', 'max', '직접 입력'];
+    const pageNames = ['100개', '300개', '1000개', '전체', '직접 입력'];
 
     const lines = [
       '<div class="log-line waiting">[대기] 상품 URL 입력을 기다리는 중…</div>',
@@ -595,10 +635,10 @@ document.addEventListener('DOMContentLoaded', () => {
     const platformNames = ['네이버', '쿠팡'];
     const collectionTypeNames = ['리뷰 수집', 'Q&A 수집', '리뷰 + Q&A 수집'];
     const sortNames = state.platform === 1 ? ['베스트순', '최신순'] : ['랭킹순', '최신순', '평점낮은순'];
-    const pageNames = ['5', '15', '50', 'max', '직접 입력'];
+    const pageNames = ['100개', '300개', '1000개', '전체', '직접 입력'];
 
-    expectedInfo.textContent = 
-      `페이지 ${pageNames[state.pages]} · 정렬 ${sortNames[state.sort]} · 플랫폼 ${platformNames[state.platform]} · ${collectionTypeNames[state.collectionType]}`;
+    expectedInfo.textContent =
+      `${pageNames[state.pages]} · 정렬 ${sortNames[state.sort]} · 플랫폼 ${platformNames[state.platform]} · ${collectionTypeNames[state.collectionType]}`;
   }
 
   function addLog(message, className = '') {
@@ -821,6 +861,21 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // IP 가져온 후 라이선스 체크
   async function getIpAndCheckLicense() {
+    // 개발 모드(npm run dev): 라이선스 체크 우회 — 모든 플랫폼 사용 가능한 fake user 적용
+    if (window.electronAPI?.isDev) {
+      console.log('[License] DEV 모드: 라이선스 체크 우회 (fake user 적용)');
+      const menuUserIp = document.getElementById('menu-user-ip');
+      if (menuUserIp) menuUserIp.textContent = 'dev-mode';
+      applyUser({
+        userId: 'dev',
+        userName: 'Developer',
+        licenseKey: 'DEV-LOCAL',
+        plan: 0, // 모든 플랫폼 가능
+        allowedIps: [],
+      });
+      return;
+    }
+
     // IP 가져오기
     const apis = [
       { url: 'https://api.ipify.org?format=json', type: 'json' },

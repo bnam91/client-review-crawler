@@ -1,488 +1,239 @@
 /**
- * 네이버 리뷰 추출 관련 함수들
+ * 네이버 리뷰 추출 — page.evaluate 일회 직렬화 방식
+ *
+ * 구버전은 page.$$로 ElementHandle 1200개를 캐싱한 채 for loop으로 추출했는데,
+ * 도중에 모달 frame이 detach되면 모든 핸들이 무효화되어 대량 실패가 발생했다.
+ * 본 구현은 page.evaluate 한 번 호출로 모든 메타데이터를 직렬화 가능한
+ * 객체 배열로 추출하고, 이미지는 URL 기반으로 별도 다운로드한다.
+ * 따라서 detach 위험 0.
  */
+import { REVIEW } from './naverSelectors.js';
+import { downloadAndSaveReviewImage } from '../../../src/utils/naver/imageDownloader.js';
 
 /**
- * 안전하게 텍스트 추출 (여러 셀렉터 시도)
- * @param {object} element - Puppeteer ElementHandle
- * @param {Array<string>} selectors - 시도할 셀렉터 배열
- * @param {string} defaultValue - 기본값
- * @returns {Promise<string>} 추출된 텍스트
+ * 네이버 phinf URL을 480px 작은 사이즈로 변환
+ * - pstatic.net 도메인이 아니면 변환하지 않음
+ * - 기존 ?type=... 쿼리는 모두 제거 후 ?type=w480 부착
+ * @param {string} url
+ * @returns {string}
  */
-async function safeExtractText(element, selectors, defaultValue = '') {
-  for (const selector of selectors) {
-    try {
-      const text = await element.evaluate((el, sel) => {
-        const elem = el.querySelector(sel);
-        return elem ? (elem.textContent || '').trim() : null;
-      }, selector);
-      
-      if (text && text.length > 0) {
-        return text;
-      }
-    } catch (e) {
-      continue;
-    }
-  }
-  return defaultValue;
+function toSmallImageUrl(url) {
+  if (!url) return url;
+  if (!url.includes('pstatic.net')) return url; // 다른 도메인은 변환 안 함
+  const [base] = url.split('?');
+  return `${base}?type=w480`;
 }
 
 /**
- * 리뷰 요소들이 실제 리뷰인지 검증
- * @param {Array} elements - 리뷰 요소 배열
- * @param {string} selectorName - 셀렉터 이름 (로깅용)
- * @returns {Promise<number>} 유효한 리뷰 개수
+ * 동시성 제한 worker pool — items 배열의 각 원소를 mapper로 처리, 결과는 같은 인덱스로 보존
+ * @param {Array} items
+ * @param {number} concurrency
+ * @param {Function} mapper - async (item, index) => result
+ * @returns {Promise<Array>}
  */
-async function validateReviews(elements, selectorName) {
-  let validReviews = 0;
-  const scoreSelectors = [
-    'em.n6zq2yy0KA',
-    'div.AlfkEF45qI em.n6zq2yy0KA',
-    'div.AlfkEF45qI em',
-    'em[class*="score"]',
-    'em[class*="star"]',
-    'em[class*="rating"]',
-    'em',
-    'span[class*="score"]',
-    'span[class*="star"]'
-  ];
-  
-  // 처음 3개 요소만 검증
-  for (let i = 0; i < Math.min(3, elements.length); i++) {
-    try {
-      const elem = elements[i];
-      let scoreFound = false;
-      
-      for (const scoreSelector of scoreSelectors) {
-        try {
-          const scoreText = await elem.evaluate((el, sel) => {
-            const scoreElem = el.querySelector(sel);
-            if (scoreElem && scoreElem.textContent) {
-              const text = scoreElem.textContent.trim();
-              // 숫자만 있는지 확인 (1-5 범위의 점수)
-              if (/^[1-5]$/.test(text)) {
-                return text;
-              }
-            }
-            return null;
-          }, scoreSelector);
-          
-          if (scoreText) {
-            validReviews++;
-            scoreFound = true;
-            console.log(`[NaverReviewExtractor]   요소 ${i+1}: 점수 '${scoreText}' 발견`);
-            break;
-          }
-        } catch (e) {
-          continue;
-        }
-      }
-      
-      if (!scoreFound) {
-        try {
-          const html = await elem.evaluate((el) => el.outerHTML.substring(0, 200));
-          console.log(`[NaverReviewExtractor]   요소 ${i+1}: 점수 요소 없음 (HTML: ${html}...)`);
-        } catch (e) {
-          console.log(`[NaverReviewExtractor]   요소 ${i+1}: 점수 요소 없음`);
-        }
-      }
-    } catch (e) {
-      console.log(`[NaverReviewExtractor]   요소 ${i+1}: 점수 확인 실패 - ${e.message}`);
-      continue;
+async function mapWithConcurrency(items, concurrency, mapper) {
+  const results = new Array(items.length);
+  let nextIdx = 0;
+  async function worker() {
+    while (true) {
+      const i = nextIdx++;
+      if (i >= items.length) return;
+      results[i] = await mapper(items[i], i);
     }
   }
-  
-  return validReviews;
+  const workerCount = Math.min(concurrency, items.length);
+  await Promise.all(Array(workerCount).fill(0).map(worker));
+  return results;
 }
 
 /**
- * 리뷰 목록의 셀렉터를 동적으로 찾기
- * @param {object} page - Puppeteer page 객체
- * @returns {Promise<string|null>} 찾은 셀렉터 또는 null
- */
-export async function findReviewSelector(page) {
-  console.log('[NaverReviewExtractor] 리뷰 셀렉터 찾기 시작...');
-  
-  // 리뷰 섹션이 로드될 때까지 대기
-  try {
-    await page.waitForSelector('#REVIEW', { timeout: 10000 });
-    console.log('[NaverReviewExtractor] 리뷰 섹션을 찾았습니다.');
-  } catch (e) {
-    console.log('[NaverReviewExtractor] 리뷰 섹션을 찾을 수 없습니다.');
-  }
-  
-  // HTML 구조를 더 정확히 분석하여 셀렉터 우선순위 조정
-  const possibleSelectors = [
-    'ul.RR2FSL9wTc li.PxsZltB5tV',
-    'li.PxsZltB5tV',
-    '#REVIEW ul.RR2FSL9wTc li',
-    'ul.HTT4L8U0CU li',
-    '#REVIEW ul.HTT4L8U0CU li',
-    '#REVIEW ul li',
-    '#REVIEW li',
-    'li[class*="PxsZltB5tV"]',
-    'ul[class*="RR2FSL9wTc"] li',
-    'li[class*="PxsZltB5tV"][class*="_nlog_click"]',
-    '.review_list li',
-    '[data-testid="review-item"]',
-    '.review-item',
-    'ul li[class*="review"]',
-    'li[class*="review"]',
-    'div[class*="review"] li'
-  ];
-  
-  for (const selector of possibleSelectors) {
-    try {
-      const elements = await page.$$(selector);
-      console.log(`[NaverReviewExtractor] 셀렉터 '${selector}' 테스트: ${elements.length}개 요소 발견`);
-      
-      if (elements && elements.length > 0) {
-        const validReviews = await validateReviews(elements, selector);
-        if (validReviews > 0) {
-          console.log(`[NaverReviewExtractor] ✅ 리뷰 셀렉터 발견: ${selector} (${elements.length}개 리뷰, ${validReviews}개 유효)`);
-          return selector;
-        } else {
-          console.log(`[NaverReviewExtractor] ❌ 셀렉터 '${selector}': 유효한 리뷰 없음`);
-        }
-      }
-    } catch (e) {
-      console.log(`[NaverReviewExtractor] ❌ 셀렉터 '${selector}' 테스트 실패: ${e.message}`);
-      continue;
-    }
-  }
-  
-  // 마지막 시도: 리뷰가 로드될 때까지 대기하고 다시 시도
-  console.log('[NaverReviewExtractor] 🔄 리뷰 로딩을 위해 추가 대기 후 재시도...');
-  await new Promise(resolve => setTimeout(resolve, 10000));
-  
-  for (const selector of possibleSelectors.slice(0, 5)) {
-    try {
-      const elements = await page.$$(selector);
-      console.log(`[NaverReviewExtractor] 재시도 - 셀렉터 '${selector}' 테스트: ${elements.length}개 요소 발견`);
-      
-      if (elements && elements.length > 0) {
-        const validReviews = await validateReviews(elements, selector);
-        if (validReviews > 0) {
-          console.log(`[NaverReviewExtractor] ✅ 재시도 성공 - 리뷰 셀렉터 발견: ${selector} (${elements.length}개 리뷰, ${validReviews}개 유효)`);
-          return selector;
-        }
-      }
-    } catch (e) {
-      console.log(`[NaverReviewExtractor] ❌ 재시도 - 셀렉터 '${selector}' 테스트 실패: ${e.message}`);
-      continue;
-    }
-  }
-  
-  console.log('[NaverReviewExtractor] 리뷰 셀렉터를 찾을 수 없습니다.');
-  return null;
-}
-
-/**
- * 리뷰 내용 추출
- * @param {object} reviewElement - 리뷰 요소
- * @returns {Promise<string>} 리뷰 내용
- */
-async function extractReviewContent(reviewElement) {
-  const contentSelectors = [
-    'div.KqJ8Qqw082 span.MX91DFZo2F',
-    'div.AlfkEF45qI div.KqJ8Qqw082 span.MX91DFZo2F',
-    'span.MX91DFZo2F',
-    'div[class*="content"] span',
-    '.review-content',
-    'p[class*="content"]',
-    'div[class*="text"]',
-    'div.KqJ8Qqw082'
-  ];
-  
-  // 파이썬 코드와 동일하게 여러 span을 찾아서 가장 긴 것을 선택
-  for (const selector of contentSelectors) {
-    try {
-      const contents = await reviewElement.evaluate((el, sel) => {
-        const elems = Array.from(el.querySelectorAll(sel));
-        return elems
-          .map(elem => elem.textContent ? elem.textContent.trim() : '')
-          .filter(text => text.length > 0);
-      }, selector);
-      
-      if (contents && contents.length > 0) {
-        // 가장 긴 내용 선택 (10자 이상)
-        const longestContent = contents.reduce((a, b) => a.length > b.length ? a : b, '');
-        if (longestContent.length > 10) {
-          return longestContent;
-        }
-      }
-    } catch (e) {
-      continue;
-    }
-  }
-  
-  return '내용 없음';
-}
-
-/**
- * 리뷰 유형 확인
- * @param {object} reviewElement - 리뷰 요소
- * @returns {Promise<string>} 리뷰 유형
- */
-async function determineReviewType(reviewElement) {
-  const typeSelectors = [
-    'span.W1IZsaUmnu',
-    'div.KqJ8Qqw082 span.W1IZsaUmnu',
-    'div.AlfkEF45qI div.KqJ8Qqw082 span.W1IZsaUmnu',
-    'div.KqJ8Qqw082 span',
-    'div.AlfkEF45qI div.KqJ8Qqw082 span',
-    'span[class*="tag"]',
-    '.review-tag',
-    'div[class*="type"]'
-  ];
-  
-  let reviewType = '일반리뷰';
-  
-  for (const selector of typeSelectors) {
-    try {
-      const types = await reviewElement.evaluate((el, sel) => {
-        const elems = Array.from(el.querySelectorAll(sel));
-        return elems
-          .map(elem => elem.textContent ? elem.textContent.trim() : '')
-          .filter(text => text.length > 0);
-      }, selector);
-      
-      if (types && types.length > 0) {
-        const isOneMonthReview = types.some(t => t.includes('한달사용'));
-        const isReorder = types.some(t => t.includes('재구매'));
-        
-        if (isOneMonthReview && isReorder) {
-          reviewType = '한달+재구매';
-        } else if (isOneMonthReview) {
-          reviewType = '한달사용기';
-        } else if (isReorder) {
-          reviewType = '재구매';
-        }
-        break;
-      }
-    } catch (e) {
-      continue;
-    }
-  }
-  
-  return reviewType;
-}
-
-/**
- * 리뷰 이미지 추출 및 다운로드
- * @param {object} reviewElement - 리뷰 요소
- * @param {string} photoFolderPath - 이미지 저장 폴더 경로
- * @param {number} currentPage - 현재 페이지 번호
- * @param {number} reviewIndex - 리뷰 인덱스
- * @returns {Promise<Array<string>>} 저장된 이미지 파일 경로 배열
- */
-async function extractReviewPhotos(reviewElement, photoFolderPath, currentPage, reviewIndex) {
-  console.log(`[NaverReviewExtractor]      📸 리뷰 이미지 추출 시작...`);
-  
-  const photoSelectors = [
-    'img.UpImHAUeYJ[alt="review_image"]',
-    'div.AlfkEF45qI img.UpImHAUeYJ[alt="review_image"]',
-    'div.s30AvhHfb0 img.UpImHAUeYJ[alt="review_image"]',
-    'img[alt="review_image"]',
-    'img[class*="review"]',
-    '.review-photo img'
-  ];
-  
-  let photoElements = [];
-  
-  // 이미지 요소 찾기
-  console.log(`[NaverReviewExtractor]      🔍 이미지 요소를 찾는 중...`);
-  for (const selector of photoSelectors) {
-    try {
-      const elements = await reviewElement.$$(selector);
-      if (elements && elements.length > 0) {
-        photoElements = elements;
-        console.log(`[NaverReviewExtractor]      ✅ 이미지 요소 ${elements.length}개 발견: ${selector}`);
-        break;
-      }
-    } catch (e) {
-      continue;
-    }
-  }
-  
-  if (photoElements.length === 0) {
-    console.log(`[NaverReviewExtractor]      ⚠️ 이미지 요소를 찾을 수 없습니다.`);
-    return [];
-  }
-  
-  // 이미지 URL 추출 및 다운로드
-  const savedPhotos = [];
-  const { downloadAndSaveReviewImage } = await import('../../../src/utils/naver/imageDownloader.js');
-  
-  for (let i = 0; i < photoElements.length; i++) {
-    try {
-      console.log(`[NaverReviewExtractor]        🖼️ 이미지 ${i + 1}/${photoElements.length} 처리 중...`);
-      
-      // data-src 속성을 우선적으로 사용 (원본 이미지)
-      console.log(`[NaverReviewExtractor]          🔗 이미지 URL 추출 중...`);
-      const photoUrl = await photoElements[i].evaluate((img) => {
-        return img.getAttribute('data-src') || img.src || '';
-      });
-      
-      if (!photoUrl) {
-        console.log(`[NaverReviewExtractor]          ⚠️ 이미지 URL을 찾을 수 없습니다.`);
-        continue;
-      }
-      
-      console.log(`[NaverReviewExtractor]          📝 원본 URL: ${photoUrl}`);
-      
-      // 이미지 다운로드 및 저장
-      const savedPath = await downloadAndSaveReviewImage(
-        photoUrl,
-        photoFolderPath,
-        currentPage,
-        reviewIndex,
-        i
-      );
-      
-      if (savedPath) {
-        savedPhotos.push(savedPath);
-        console.log(`[NaverReviewExtractor]          ✅ 이미지 ${i + 1} 처리 완료`);
-      } else {
-        console.log(`[NaverReviewExtractor]          ❌ 이미지 ${i + 1} 다운로드 실패`);
-      }
-    } catch (error) {
-      console.error(`[NaverReviewExtractor]          ❌ 이미지 ${i + 1} 다운로드 실패: ${error.message}`);
-      continue;
-    }
-  }
-  
-  console.log(`[NaverReviewExtractor]      📊 총 ${savedPhotos.length}개 이미지 추출 완료`);
-  return savedPhotos;
-}
-
-/**
- * 단일 리뷰 데이터 추출
- * @param {object} reviewElement - 리뷰 요소
- * @param {string} photoFolderPath - 이미지 저장 폴더 경로
- * @param {number} currentPage - 현재 페이지 번호
- * @param {number} reviewIndex - 리뷰 인덱스
- * @returns {Promise<object>} 리뷰 데이터 객체
- */
-export async function extractSingleReview(reviewElement, photoFolderPath, currentPage, reviewIndex) {
-  console.log(`[NaverReviewExtractor] ⭐ 리뷰 ${reviewIndex + 1} 추출 시작...`);
-  
-  // 리뷰 점수 추출
-  console.log(`[NaverReviewExtractor]   ⭐ 리뷰 점수 추출 중...`);
-  const reviewScore = await safeExtractText(reviewElement, [
-    'em.n6zq2yy0KA',
-    'div.AlfkEF45qI em.n6zq2yy0KA',
-    'div.AlfkEF45qI em',
-    'em[class*="score"]',
-    'em[class*="star"]',
-    'em[class*="rating"]',
-    'em',
-    '.score',
-    'span[class*="score"]',
-    'span[class*="star"]'
-  ], '점수 없음');
-  console.log(`[NaverReviewExtractor]   ✅ 리뷰 점수: ${reviewScore}`);
-  
-  // 리뷰어 이름 추출
-  console.log(`[NaverReviewExtractor]   👤 리뷰어 이름 추출 중...`);
-  const reviewerName = await safeExtractText(reviewElement, [
-    'strong.MX91DFZo2F',
-    'div.AlfkEF45qI strong.MX91DFZo2F',
-    'div.Db9Dtnf7gY strong.MX91DFZo2F',
-    'strong[class*="name"]',
-    '.reviewer-name',
-    'span[class*="name"]'
-  ], '이름 없음');
-  console.log(`[NaverReviewExtractor]   ✅ 리뷰어: ${reviewerName}`);
-  
-  // 리뷰 날짜 추출
-  console.log(`[NaverReviewExtractor]   📅 리뷰 날짜 추출 중...`);
-  const reviewDate = await safeExtractText(reviewElement, [
-    'span.MX91DFZo2F',
-    'div.Db9Dtnf7gY span.MX91DFZo2F',
-    'div.AlfkEF45qI div.Db9Dtnf7gY span.MX91DFZo2F',
-    'span[class*="date"]',
-    '.review-date',
-    'div[class*="date"]'
-  ], '날짜 없음');
-  console.log(`[NaverReviewExtractor]   ✅ 리뷰 날짜: ${reviewDate}`);
-  
-  // 상품 옵션 정보 추출
-  console.log(`[NaverReviewExtractor]   🛍️ 상품 옵션 정보 추출 중...`);
-  const productName = await safeExtractText(reviewElement, [
-    'div.b_caIle8kC',
-    'div.AlfkEF45qI div.b_caIle8kC',
-    'div[class*="product"]',
-    '.product-name',
-    'span[class*="product"]'
-  ], '정보 없음');
-  console.log(`[NaverReviewExtractor]   ✅ 상품 옵션: ${productName}`);
-  
-  // 리뷰 내용 추출
-  console.log(`[NaverReviewExtractor]   📝 리뷰 내용 추출 중...`);
-  const content = await extractReviewContent(reviewElement);
-  console.log(`[NaverReviewExtractor]   ✅ 리뷰 내용 길이: ${content.length}자`);
-  
-  // 리뷰 유형 확인
-  console.log(`[NaverReviewExtractor]   🏷️ 리뷰 유형 확인 중...`);
-  const reviewType = await determineReviewType(reviewElement);
-  console.log(`[NaverReviewExtractor]   ✅ 리뷰 유형: ${reviewType}`);
-  
-  // 리뷰 이미지 추출
-  console.log(`[NaverReviewExtractor]   📸 리뷰 이미지 추출 중...`);
-  const photos = await extractReviewPhotos(reviewElement, photoFolderPath, currentPage, reviewIndex);
-  console.log(`[NaverReviewExtractor]   ✅ 추출된 이미지 수: ${photos.length}개`);
-  if (photos.length > 0) {
-    console.log(`[NaverReviewExtractor]   📷 이미지 URL들:`, photos);
-  }
-  
-  return {
-    'Review Score': reviewScore,
-    'Reviewer Name': reviewerName,
-    'Review Date': reviewDate,
-    'Product(Option) Name': productName,
-    'Review Type': reviewType,
-    'Content': content,
-    'Photos': photos
-  };
-}
-
-/**
- * 모든 리뷰 추출
+ * 모든 리뷰 추출 — 모달 내 li[id^="REVIEW_ITEM_"] 전체를 처리
  * @param {object} page - Puppeteer page 객체
  * @param {string} photoFolderPath - 이미지 저장 폴더 경로
- * @param {number} currentPage - 현재 페이지 번호
+ * @param {number} currentPage - 현재 페이지 번호 (무한 스크롤이라 보통 1)
+ * @param {object} options - 추가 옵션
+ * @param {boolean} options.downloadImages - 이미지 다운로드 여부 (기본 true)
+ * @param {boolean} options.smallImage - 이미지 작게 받기 여부 (기본 false, true면 480px 다운로드)
+ * @param {Function} options.sendLog - sendLog(message, className, updateLast) 콜백
  * @returns {Promise<Array<object>>} 리뷰 데이터 배열
  */
-export async function extractAllReviews(page, photoFolderPath, currentPage = 1) {
-  console.log('[NaverReviewExtractor] 모든 리뷰 추출 시작...');
-  
-  // 리뷰 셀렉터 찾기
-  const selector = await findReviewSelector(page);
-  
-  if (!selector) {
-    console.log('[NaverReviewExtractor] ❌ 리뷰 셀렉터를 찾을 수 없습니다.');
+export async function extractAllReviews(page, photoFolderPath, currentPage = 1, options = {}) {
+  const { downloadImages = true, smallImage = false, sendLog = null } = options;
+  console.log('[NaverReviewExtractor] 모든 리뷰 추출 시작 (page.evaluate 일회 직렬화)...');
+
+  // ① page.evaluate 한 번 호출로 전체 리뷰 메타데이터 직렬화
+  // ElementHandle을 사용하지 않으므로 frame detach에 영향받지 않음
+  const rawReviews = await page.evaluate((REVIEW) => {
+    // 별점 추출 헬퍼 (extractScore 인라인)
+    const extractScore = (scoreEl) => {
+      if (!scoreEl) return '';
+      const first = scoreEl.firstChild;
+      if (first && first.nodeType === 3 && first.nodeValue) {
+        const m = first.nodeValue.match(/[1-5]/);
+        if (m) return m[0];
+      }
+      const m = (scoreEl.textContent || '').match(/[1-5]/);
+      return m ? m[0] : '';
+    };
+
+    const items = Array.from(document.querySelectorAll(REVIEW.modalDialogSelector));
+
+    return items.map((el) => {
+      // 별점
+      const scoreEl = el.querySelector(REVIEW.scoreContainer);
+      const reviewScore = extractScore(scoreEl) || '점수 없음';
+
+      // 작성자/날짜 (span.sDXjr3m0LZ × 2)
+      let reviewerName = '이름 없음';
+      let reviewDate = '날짜 없음';
+      const authorContainer = el.querySelector(REVIEW.authorDateContainer);
+      if (authorContainer) {
+        const spans = Array.from(authorContainer.querySelectorAll(REVIEW.authorDateSpan));
+        const nameRaw = spans[0] ? (spans[0].textContent || '').trim() : '';
+        const dateRaw = spans[1] ? (spans[1].textContent || '').trim() : '';
+        if (nameRaw) reviewerName = nameRaw;
+        if (dateRaw) reviewDate = dateRaw;
+      }
+
+      // 본문 (p.Uv4T3VkhKU에서 끝의 "더보기" 제거)
+      let content = '내용 없음';
+      const p = el.querySelector(REVIEW.contentParagraph);
+      if (p) {
+        let raw = (p.textContent || '').trim();
+        raw = raw.replace(/더보기$/, '').trim();
+        if (raw) content = raw;
+      }
+
+      // 리뷰 유형 (em.FJNePG7vwX 텍스트 모음에서 한달사용/재구매 검출)
+      const badges = Array.from(el.querySelectorAll(REVIEW.reviewTypeBadge))
+        .map((b) => (b.textContent || '').trim())
+        .filter((t) => t.length > 0);
+      const isOneMonthReview = badges.some((t) => t.includes('한달사용'));
+      const isReorder = badges.some((t) => t.includes('재구매'));
+      let reviewType = '일반리뷰';
+      if (isOneMonthReview && isReorder) reviewType = '한달+재구매';
+      else if (isOneMonthReview) reviewType = '한달사용기';
+      else if (isReorder) reviewType = '재구매';
+
+      // 사진 URL — li.uVSJ8fwmPd img.G6QVe8dT5G의 data-src 우선, 없으면 src
+      const imgSelector = `${REVIEW.photoListItem} ${REVIEW.photoImg}`;
+      let imgs = Array.from(el.querySelectorAll(imgSelector));
+      if (imgs.length === 0) {
+        // photoListItem 없이 img만 있는 케이스 폴백
+        imgs = Array.from(el.querySelectorAll(REVIEW.photoImg));
+      }
+      const photoUrls = imgs
+        .map((img) => img.getAttribute('data-src') || img.getAttribute('src') || '')
+        .filter((u) => u && u.length > 0);
+
+      return {
+        reviewScore,
+        reviewerName,
+        reviewDate,
+        content,
+        reviewType,
+        photoUrls,
+      };
+    });
+  }, REVIEW);
+
+  console.log(`[NaverReviewExtractor] ${rawReviews.length}개의 리뷰 메타데이터를 직렬화 추출했습니다.`);
+
+  if (rawReviews.length === 0) {
+    console.log('[NaverReviewExtractor] ❌ 추출된 리뷰가 없습니다.');
     return [];
   }
-  
-  // 리뷰 요소들 가져오기
-  const reviewElements = await page.$$(selector);
-  console.log(`[NaverReviewExtractor] ${reviewElements.length}개의 리뷰 요소를 찾았습니다.`);
-  
-  const reviews = [];
-  
-  // 각 리뷰 추출
-  for (let i = 0; i < reviewElements.length; i++) {
-    try {
-      const reviewData = await extractSingleReview(reviewElements[i], photoFolderPath, currentPage, i);
-      reviews.push(reviewData);
-    } catch (e) {
-      console.error(`[NaverReviewExtractor] 리뷰 ${i + 1} 추출 실패: ${e.message}`);
-      continue;
+
+  // 메타 추출 후 진행률 안내 (총 사진 수 계산)
+  const totalPhotoCount = rawReviews.reduce((sum, r) => sum + (r.photoUrls?.length || 0), 0);
+
+  if (downloadImages) {
+    sendLog?.(`[진행] 메타데이터 추출 완료, 이미지 다운로드 시작 (${totalPhotoCount}장)`, 'info');
+    if (smallImage) {
+      sendLog?.(`[안내] 이미지 작게 받기 모드 (480px, 빠른 다운로드)`, 'info');
     }
+  } else {
+    sendLog?.(`[안내] 이미지 다운로드 OFF — 메타만 저장`, 'info');
   }
-  
+
+  // ② 사진 다운로드 작업을 (reviewIdx, photoIdx, url) 평탄화 후 동시성 8 풀 처리
+  // — 사진 있는 리뷰만 큐에 들어가므로 효율적
+  const photoResults = rawReviews.map((r) => new Array(r.photoUrls.length).fill(null));
+
+  if (downloadImages && totalPhotoCount > 0) {
+    const tasks = [];
+    for (let ri = 0; ri < rawReviews.length; ri++) {
+      const urls = rawReviews[ri].photoUrls;
+      for (let pi = 0; pi < urls.length; pi++) {
+        tasks.push({ reviewIdx: ri, photoIdx: pi, url: urls[pi] });
+      }
+    }
+
+    let completed = 0;
+    const total = tasks.length;
+    await mapWithConcurrency(tasks, 8, async (task) => {
+      try {
+        const targetUrl = smallImage ? toSmallImageUrl(task.url) : task.url;
+        const savedPath = await downloadAndSaveReviewImage(
+          targetUrl,
+          photoFolderPath,
+          currentPage,
+          task.reviewIdx,
+          task.photoIdx,
+          { keepQuery: !!smallImage }
+        );
+        if (savedPath) {
+          photoResults[task.reviewIdx][task.photoIdx] = savedPath;
+        }
+      } catch (e) {
+        console.error(`[NaverReviewExtractor] 리뷰 ${task.reviewIdx + 1} 이미지 ${task.photoIdx + 1} 다운로드 실패: ${e.message}`);
+      } finally {
+        completed++;
+        if (completed % 100 === 0 || completed === total) {
+          sendLog?.(`[진행] 이미지 ${completed}/${total} 다운로드 중...`, 'info', true);
+        }
+      }
+    });
+  }
+
+  // ③ 리뷰 객체 조립
+  const reviews = [];
+  for (let i = 0; i < rawReviews.length; i++) {
+    const raw = rawReviews[i];
+
+    // 진행률 로그 (매 50개)
+    if (i === 0 || (i + 1) % 50 === 0 || i === rawReviews.length - 1) {
+      console.log(`[NaverReviewExtractor] 📊 진행: ${i + 1}/${rawReviews.length}`);
+    }
+
+    // 날짜 후처리 (YY.MM.DD. 패턴 보정)
+    let reviewDate = raw.reviewDate;
+    if (reviewDate && reviewDate !== '날짜 없음') {
+      const m = reviewDate.match(/\d{2}\.\d{2}\.\d{2}\.?/);
+      if (m) reviewDate = m[0];
+    }
+
+    // 사진 결과 — 다운로드 OFF면 빈 배열, ON이면 성공한 path만 모음
+    let photos = [];
+    if (downloadImages) {
+      photos = (photoResults[i] || []).filter((p) => p);
+    }
+
+    // TODO: 옵션 있는 상품에서 셀렉터 확정 필요 (lalacamp 보풀제거기는 옵션 없는 상품이라 미확인)
+    const productName = '정보 없음';
+
+    reviews.push({
+      'Page_Review': `${currentPage}_${i + 1}`,
+      'Review Score': raw.reviewScore,
+      'Reviewer Name': raw.reviewerName,
+      'Review Date': reviewDate,
+      'Product(Option) Name': productName,
+      'Review Type': raw.reviewType,
+      'Content': raw.content,
+      'Photos': photos,
+    });
+  }
+
   console.log(`[NaverReviewExtractor] ✅ 총 ${reviews.length}개의 리뷰를 추출했습니다.`);
   return reviews;
 }
-
