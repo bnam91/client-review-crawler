@@ -59,3 +59,68 @@ export function extractDate(text) {
 export function isReviewModal(dialog) {
   return !!dialog?.querySelector('li[id^="REVIEW_ITEM_"]');
 }
+
+/**
+ * Q&A 모달 셀렉터/헬퍼 (리뷰 모달과 별개의 li id 패턴 사용)
+ *
+ * 진단 노션 page_id 351111a577888185ae38c42e94ac31c0 섹션 4 + 9-2 보정 6개 반영.
+ * - id-pattern 우선: li[id^="QNA_ITEM_"]
+ * - 답변 본문 라벨 분리: span.QnKjMlq02P("판매자")는 cloneNode 후 제거
+ * - aria-expanded는 li에 위치 (button 아님)
+ * - 비밀글 li에는 button.Zkm9D0uiDX(펼침 토글) 자체가 없음 → 비밀글 분기 필수
+ * - 날짜는 YY.MM.DD. 형식 (extractDate 그대로 재사용)
+ * - 스크롤 컨테이너는 진단에서 명시되지 않음 → 동적 탐색 헬퍼 사용
+ */
+export const QNA = {
+  // 모달 식별 (리뷰와 별도 id-pattern)
+  DIALOG_ITEM_ID_PREFIX: 'QNA_ITEM_',
+  modalDialogSelector: 'li[id^="QNA_ITEM_"]',
+  closeButtonSelector: 'button.ohszb8eHEV',  // 리뷰 모달과 동일
+
+  // 진입 트리거 (페이지 본문의 lazy mount 버튼, 텍스트 매칭)
+  openModalButtonText: 'Q&A 전체보기',
+
+  // 모달 내부 항목 식별
+  qnaItemSelector: 'li.QLFlBHQrj5',  // === li[id^="QNA_ITEM_"]
+
+  // 질문/제목/작성자/날짜
+  answerStatusSelector: 'span.c456r2HufF.cCY_tKsVsl.nlJDTr1Li6',  // 예: "답변완료"
+  questionContainerSelector: 'div.QZGjGTmH8Z',
+  questionParagraphSelector: 'div.QZGjGTmH8Z > p.JuWU27jX8V',  // 펼침 전후 같은 위치, 펼친 후 길어짐
+  authorContainerSelector: 'div.QZGjGTmH8Z > div.Iwqsybzn32',
+  authorSpanSelector: 'span.c456r2HufF',  // 작성자 (해당 컨테이너 내 2번째)
+  dateSelector: 'span.c456r2HufF._osoqps1Tp',
+
+  // 펼침 트리거 (비밀글에는 없음)
+  expandButtonSelector: 'button.Zkm9D0uiDX',
+
+  // 답변
+  answerContainerSelector: 'div.cdwfrsSLiU',
+  answerParagraphSelector: 'div.cdwfrsSLiU > p.JuWU27jX8V',  // 단, 라벨 span 제거 후 추출
+  answerLabelSelector: 'span.QnKjMlq02P',  // 라벨 "판매자"
+  answerAuthorContainerSelector: 'div.cdwfrsSLiU > div.Iwqsybzn32',
+  answerAuthorDateSpanSelector: 'span.c456r2HufF',  // 컨테이너 내 1번째가 작성일/작성자
+
+  // 비밀글
+  secretCheckboxId: 'qnaSecret',
+  secretTitleText: '비밀글입니다.',
+};
+
+/**
+ * Q&A 모달 dialog 식별 (인자로 받은 dialog 검사)
+ * @param {Element|null} dialog
+ * @returns {boolean}
+ */
+export function isQnAModal(dialog) {
+  return !!dialog?.querySelector('li[id^="QNA_ITEM_"]');
+}
+
+/**
+ * Q&A 작성일에서 YY.MM.DD. 패턴만 추출
+ * (extractDate와 동일 로직이지만 의미 명시 위해 별도 export)
+ * @param {string} text
+ * @returns {string}
+ */
+export function extractQnADate(text) {
+  return extractDate(text);
+}

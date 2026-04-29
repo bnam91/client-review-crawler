@@ -1,11 +1,12 @@
 /**
  * 네이버 탭 클릭 및 정렬 옵션 관련 함수들
  *
- * 리뉴얼 후 리뷰는 모달 안에서 정렬 처리.
- * Q&A는 기존처럼 a[data-name="QNA"] 탭을 클릭한다.
+ * 리뉴얼 후 리뷰/Q&A 모두 모달 진입 방식으로 통일.
+ * - 리뷰(0): "리뷰 전체보기" 버튼 → 모달 + 정렬
+ * - Q&A(1):  "Q&A 전체보기" 버튼 → 모달 (정렬 옵션 없음)
  */
 import { REVIEW } from './naverSelectors.js';
-import { openReviewModal } from './naverNavigation.js';
+import { openReviewModal, openQnAModal } from './naverNavigation.js';
 
 /**
  * 모달 내부 정렬 옵션 적용
@@ -134,92 +135,23 @@ export async function clickReviewOrQnATab(page, collectionType, sortOption = 0) 
     return;
   }
 
-  // Q&A: 기존 탭 클릭 흐름
-  const tabName = 'QNA';
-  const tabLabel = 'Q&A';
-  const selector = `a[data-name="${tabName}"]`;
-
-  console.log(`[NaverTabActions] 🔍 ${tabLabel} 탭을 찾는 중...`);
+  // Q&A: 모달 진입 (정렬 옵션 없음)
+  console.log(`[NaverTabActions] 🔍 Q&A 모달 진입 중...`);
 
   try {
-    // 페이지가 완전히 로드될 때까지 대기
-    await page.waitForLoadState?.('networkidle') || await new Promise(resolve => setTimeout(resolve, 2000));
+    // 페이지 안정화 대기
+    await page.waitForLoadState?.('networkidle') || await new Promise(resolve => setTimeout(resolve, 1500));
 
-    // 1. 페이지 하단으로 스크롤
-    console.log('[NaverTabActions] 📜 페이지 하단으로 스크롤 중...');
-    await page.evaluate(() => {
-      window.scrollTo(0, document.body.scrollHeight);
-    });
-
-    // 스크롤 후 대기
-    await new Promise(resolve => setTimeout(resolve, 1000));
-
-    // 2. Q&A 탭 선택자 대기
-    await page.waitForSelector(selector, {
-      timeout: 10000,
-      visible: true
-    });
-
-    console.log(`[NaverTabActions] ✅ ${tabLabel} 탭을 찾았습니다.`);
-
-    // 3. JavaScript로 탭 클릭
-    const clickSuccess = await page.evaluate((sel) => {
-      const element = document.querySelector(sel);
-      if (element) {
-        element.click();
-        return true;
-      }
-      return false;
-    }, selector);
-
-    if (clickSuccess) {
-      console.log(`[NaverTabActions] ✅ ${tabLabel} 탭을 클릭했습니다.`);
-    } else {
-      throw new Error('탭 요소를 찾을 수 없습니다.');
+    const opened = await openQnAModal(page);
+    if (!opened) {
+      throw new Error('Q&A 모달을 열 수 없습니다.');
     }
 
-    // 클릭 후 대기
-    await new Promise(resolve => setTimeout(resolve, 3000));
+    console.log('[NaverTabActions] ✅ Q&A 모달 진입 완료');
 
-    // 4. 탭 활성화 확인
-    console.log(`[NaverTabActions] 🔍 ${tabLabel} 탭 활성화 상태를 확인합니다...`);
-    const isActive = await page.evaluate((sel) => {
-      const element = document.querySelector(sel);
-      if (element) {
-        return element.getAttribute('aria-current') === 'true';
-      }
-      return false;
-    }, selector);
-
-    if (isActive) {
-      console.log(`[NaverTabActions] ✅ ${tabLabel} 탭이 성공적으로 활성화되었습니다.`);
-    } else {
-      console.log(`[NaverTabActions] ⚠️ ${tabLabel} 탭 활성화 상태를 확인할 수 없습니다.`);
-    }
-
+    // 모달 안정화 대기 (체크박스/리스트 첫 렌더)
+    await new Promise(resolve => setTimeout(resolve, 1500));
   } catch (e) {
-    console.log(`[NaverTabActions] ❌ ${tabLabel} 탭 클릭 실패: ${e.message}`);
-    console.log('[NaverTabActions] 🔄 JavaScript로 직접 클릭을 시도합니다...');
-
-    try {
-      const clickSuccess = await page.evaluate((sel) => {
-        window.scrollTo(0, document.body.scrollHeight);
-        const element = document.querySelector(sel);
-        if (element) {
-          element.click();
-          return true;
-        }
-        return false;
-      }, selector);
-
-      if (clickSuccess) {
-        console.log(`[NaverTabActions] ✅ JavaScript로 ${tabLabel} 탭을 클릭했습니다.`);
-        await new Promise(resolve => setTimeout(resolve, 3000));
-      } else {
-        throw new Error('탭 요소를 찾을 수 없습니다.');
-      }
-    } catch (e2) {
-      console.log(`[NaverTabActions] ❌ JavaScript 클릭도 실패: ${e2.message}`);
-    }
+    console.log(`[NaverTabActions] ❌ Q&A 모달 진입 실패: ${e.message}`);
   }
 }

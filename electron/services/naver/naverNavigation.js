@@ -1,7 +1,7 @@
 /**
  * 네이버 네비게이션 관련 함수들
  */
-import { REVIEW } from './naverSelectors.js';
+import { REVIEW, QNA } from './naverSelectors.js';
 
 /**
  * 페이지를 천천히 스크롤하여 리뷰 영역이 보이도록 함
@@ -114,6 +114,143 @@ export async function closeReviewModal(page, timeoutMs = 5000) {
 }
 
 /**
+ * 페이지를 천천히 스크롤하여 "Q&A 전체보기" 버튼이 보이도록 함
+ * (리뷰의 scrollUntilOpenButtonVisible과 동일 패턴)
+ * @param {object} page - Puppeteer page 객체
+ */
+async function scrollUntilQnAButtonVisible(page) {
+  console.log('[NaverNavigation] 📜 "Q&A 전체보기" 버튼이 보일 때까지 스크롤 중...');
+  await page.evaluate(async (openText) => {
+    const isVisible = () => {
+      const buttons = Array.from(document.querySelectorAll('button'));
+      return buttons.some(b => (b.textContent || '').trim() === openText);
+    };
+
+    let lastScrollY = -1;
+    let stableCount = 0;
+    for (let i = 0; i < 30; i++) {
+      if (isVisible()) return true;
+      window.scrollBy(0, Math.floor(window.innerHeight * 0.8));
+      await new Promise(r => setTimeout(r, 400));
+      if (window.scrollY === lastScrollY) {
+        stableCount++;
+        if (stableCount >= 3) break;
+      } else {
+        stableCount = 0;
+        lastScrollY = window.scrollY;
+      }
+    }
+    return isVisible();
+  }, QNA.openModalButtonText);
+}
+
+/**
+ * "Q&A 전체보기" 버튼을 찾아 클릭하고 Q&A 모달 dialog가 등장할 때까지 대기
+ * @param {object} page - Puppeteer page 객체
+ * @param {number} timeoutMs - 모달 대기 타임아웃 (기본 15초)
+ * @returns {Promise<boolean>} 모달 표출 성공 여부
+ */
+export async function openQnAModal(page, timeoutMs = 30000) {
+  console.log('[NaverNavigation] 🔎 "Q&A 전체보기" 버튼을 찾는 중...');
+
+  // 1. 페이지 스크롤로 버튼 노출 (lazy mount)
+  await scrollUntilQnAButtonVisible(page);
+
+  // 2. 버튼 좌표 추출 후 page.mouse.click()으로 OS 레벨 마우스 이벤트 발사
+  // — React 합성 이벤트 시스템이 evaluate 내부 el.click() JS 호출은 onClick을 트리거하지 않음 (lalacamp Q&A에서 확인).
+  //   puppeteer page.mouse는 CDP Input.dispatchMouseEvent로 mouseMoved/mousePressed/mouseReleased를
+  //   직접 보내므로 React onClick이 정상 트리거됨.
+  const box = await page.evaluate((openText) => {
+    const buttons = Array.from(document.querySelectorAll('button'));
+    const btn = buttons.find(b => (b.textContent || '').trim() === openText);
+    if (!btn) return null;
+    btn.scrollIntoView({ block: 'center', behavior: 'instant' });
+    const r = btn.getBoundingClientRect();
+    return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+  }, QNA.openModalButtonText);
+
+  if (!box) {
+    console.log('[NaverNavigation] ❌ "Q&A 전체보기" 버튼을 찾지 못했습니다.');
+    return false;
+  }
+
+  // scrollIntoView 후 layout 안정화 대기
+  await new Promise(r => setTimeout(r, 500));
+
+  // 좌표 재계산 (scroll 후 위치 변화 가능성)
+  const finalBox = await page.evaluate((openText) => {
+    const buttons = Array.from(document.querySelectorAll('button'));
+    const btn = buttons.find(b => (b.textContent || '').trim() === openText);
+    if (!btn) return null;
+    const r = btn.getBoundingClientRect();
+    return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+  }, QNA.openModalButtonText);
+
+  const clickBox = finalBox || box;
+
+  try {
+    await page.mouse.click(clickBox.x, clickBox.y);
+  } catch (e) {
+    console.log(`[NaverNavigation] ⚠️ mouse.click 오류: ${e.message}`);
+    return false;
+  }
+
+  console.log('[NaverNavigation] ✅ "Q&A 전체보기" 버튼 클릭 완료. 모달 대기 중...');
+
+  // 3. role="dialog" 중 li[id^="QNA_ITEM_"] 가진 dialog가 등장할 때까지 폴링
+  const start = Date.now();
+  const pollInterval = 300;
+  while (Date.now() - start < timeoutMs) {
+    const exists = await page.evaluate(() => {
+      const dialogs = Array.from(document.querySelectorAll('[role="dialog"]'));
+      return dialogs.some(d => d.querySelector('li[id^="QNA_ITEM_"]'));
+    });
+    if (exists) {
+      console.log('[NaverNavigation] ✅ Q&A 모달이 표시되었습니다.');
+      return true;
+    }
+    await new Promise(resolve => setTimeout(resolve, pollInterval));
+  }
+
+  console.log('[NaverNavigation] ❌ Q&A 모달이 시간 내에 나타나지 않았습니다.');
+  return false;
+}
+
+/**
+ * Q&A 모달을 닫고 사라질 때까지 대기 (closeReviewModal과 동일 패턴, button.ohszb8eHEV)
+ * @param {object} page - Puppeteer page 객체
+ * @param {number} timeoutMs - 대기 타임아웃 (기본 5초)
+ */
+export async function closeQnAModal(page, timeoutMs = 5000) {
+  console.log('[NaverNavigation] 🚪 Q&A 모달 닫기 시도...');
+
+  await page.evaluate((closeSel) => {
+    // Q&A 모달의 닫기 버튼만 클릭 (리뷰 모달과 같은 셀렉터지만 Q&A 모달 안의 것을 우선 선택)
+    const dialogs = Array.from(document.querySelectorAll('[role="dialog"]'));
+    const qnaDialog = dialogs.find(d => d.querySelector('li[id^="QNA_ITEM_"]'));
+    const btn = (qnaDialog && qnaDialog.querySelector(closeSel)) || document.querySelector(closeSel);
+    if (btn) btn.click();
+  }, QNA.closeButtonSelector);
+
+  const start = Date.now();
+  const pollInterval = 200;
+  while (Date.now() - start < timeoutMs) {
+    const stillOpen = await page.evaluate(() => {
+      const dialogs = Array.from(document.querySelectorAll('[role="dialog"]'));
+      return dialogs.some(d => d.querySelector('li[id^="QNA_ITEM_"]'));
+    });
+    if (!stillOpen) {
+      console.log('[NaverNavigation] ✅ Q&A 모달이 닫혔습니다.');
+      return true;
+    }
+    await new Promise(resolve => setTimeout(resolve, pollInterval));
+  }
+
+  console.log('[NaverNavigation] ⚠️ Q&A 모달 닫힘을 확인하지 못했습니다.');
+  return false;
+}
+
+/**
  * 네이버 메인 페이지로 이동하고 검색 입력 필드가 나타날 때까지 대기
  */
 export async function navigateToNaver(page) {
@@ -127,12 +264,15 @@ export async function navigateToNaver(page) {
   
   console.log('[NaverNavigation] 네이버 메인 페이지 로드 완료');
   
-  // 2. 검색 입력 필드가 나타날 때까지 대기 (최대 10초)
-  await page.waitForSelector('input#query, input[name="query"], input[type="search"]', { 
-    timeout: 10000 
-  });
-  
-  console.log('[NaverNavigation] 검색 입력 필드 확인 완료');
+  // 2. 검색 입력 필드 대기 — URL 모드는 곧바로 상품 URL로 이동하므로 실패해도 진행
+  try {
+    await page.waitForSelector('input#query, input[name="query"], input[type="search"]', {
+      timeout: 30000
+    });
+    console.log('[NaverNavigation] 검색 입력 필드 확인 완료');
+  } catch (e) {
+    console.log('[NaverNavigation] ⚠️ 검색 입력 필드 대기 실패 (URL 모드는 계속 진행):', e.message);
+  }
 }
 
 /**
