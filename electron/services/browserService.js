@@ -160,8 +160,7 @@ export async function openUrlInBrowser(input, platform = 0, collectionType = 0, 
     try { await fs.mkdir(userDataDir, { recursive: true }); } catch {}
     console.log('[BrowserService] puppeteer userDataDir:', userDataDir);
 
-    // puppeteer-core로 브라우저 실행
-    browser = await puppeteer.launch({
+    const launchOptions = {
       executablePath: chromePath,
       headless: false, // 브라우저 창을 표시
       defaultViewport: null,
@@ -170,7 +169,47 @@ export async function openUrlInBrowser(input, platform = 0, collectionType = 0, 
         '--start-maximized', // 최대화된 상태로 시작
         '--disable-blink-features=AutomationControlled', // 자동화 감지 방지
       ],
-    });
+    };
+
+    // puppeteer-core로 브라우저 실행
+    // 두 번째 크롤링 시도 시 이전 인스턴스가 살아있어 SingletonLock 충돌이 일어날 수 있음.
+    // catch 후 stale lock 자동 정리 + 1회 재시도.
+    try {
+      browser = await puppeteer.launch(launchOptions);
+    } catch (e) {
+      const msg = (e && e.message) || '';
+      const isLockConflict = msg.includes('already running') || msg.includes('SingletonLock') || msg.includes('ProcessSingleton');
+      if (!isLockConflict) throw e;
+
+      console.log('[BrowserService] ⚠️ SingletonLock 충돌 감지 — 이전 인스턴스 정리 후 재시도');
+      if (webContents) {
+        try {
+          webContents.send('crawler-log', { message: '[안내] 이전 브라우저 세션 정리 중…', className: 'warning' });
+        } catch {}
+      }
+
+      // 1) 기존 puppeteer-chrome-profile 프로세스 kill (macOS/Linux)
+      try {
+        const { exec: execCb } = await import('child_process');
+        const execPromise = (cmd) => new Promise((resolve) => execCb(cmd, () => resolve()));
+        if (process.platform === 'darwin' || process.platform === 'linux') {
+          await execPromise(`pkill -9 -f "user-data-dir=${userDataDir}" || true`);
+        } else if (process.platform === 'win32') {
+          // Windows: 프로세스 args 매칭이 까다로움 — taskkill로 chrome.exe만 처리하긴 위험하므로 lock 파일 삭제만
+        }
+      } catch {}
+
+      // 2) SingletonLock/Cookies-journal 등 stale 파일 정리
+      const lockFiles = ['SingletonLock', 'SingletonCookie', 'SingletonSocket'];
+      for (const lf of lockFiles) {
+        try { await fs.unlink(path.join(userDataDir, lf)); } catch {}
+      }
+
+      // 3) 짧은 대기 후 재시도
+      await new Promise(r => setTimeout(r, 1500));
+      console.log('[BrowserService] 🔄 puppeteer.launch 재시도');
+      browser = await puppeteer.launch(launchOptions);
+    }
     
     const browserPages = await browser.pages();
     const page = browserPages[0] || await browser.newPage();

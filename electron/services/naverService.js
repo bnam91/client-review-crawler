@@ -1,7 +1,8 @@
 /**
  * 네이버 플랫폼 전용 서비스
  */
-import { verifyNaverProductPageLoaded, waitForProductPageToLoad } from '../../src/utils/naver/productPageUtil.js';
+// productPageUtil의 verify는 페이지 리뉴얼로 옛 셀렉터가 무효화되어 사용 중단.
+// 페이지 상태 검증은 naverTabActions.waitForCaptchaIfNeeded + 모달 진입 폴링이 대체.
 import { navigateToNaver, createNaverSearchUrl, isNaverProductPage, waitForNaverProductPage, closeReviewModal, closeQnAModal } from './naver/naverNavigation.js';
 import { clickReviewOrQnATab } from './naver/naverTabActions.js';
 import { extractAllReviews } from './naver/naverReviewExtractor.js';
@@ -341,51 +342,19 @@ export async function handleNaver(browser, page, input, isUrl, collectionType = 
       const productPage = result.page || newPage; // 실제 상품 페이지 객체
       
       console.log('[NaverService] 상품 페이지 도착:', productUrl);
-      
-      // 5. 상품 페이지 정상 로딩 확인
-      const verificationResult = await verifyNaverProductPageLoaded(productPage);
-      
-      if (!verificationResult.success) {
-        console.log(`[NaverService] ⚠️ 상품 페이지 로딩 실패: ${verificationResult.reason || '알 수 없는 오류'}`);
-        console.log('[NaverService] 에러 메시지가 사라지고 정상 로딩 요소가 나타날 때까지 대기 중...');
-        
-        // URL 기본 경로 추출 (파라미터 제거)
-        const baseUrl = productUrl.split('?')[0];
-        
-        // 에러 메시지가 사라지고 정상 로딩 요소가 나타날 때까지 대기
-        // (캡챠 감지 시 로그만 표시하고 계속 대기)
-        const waitResult = await waitForProductPageToLoad(productPage, baseUrl, 60, sendLog);
-        
-        if (!waitResult.success) {
-          const errorMsg = `[NaverService] ⚠️ 상품 페이지 로딩 대기 실패: ${waitResult.reason || '알 수 없는 오류'}`;
-          console.log(errorMsg);
-          sendLog(errorMsg, 'warning');
-        } else {
-          const successMsg = '[NaverService] ✅ 상품 페이지 정상 로딩 확인 완료';
-          console.log(successMsg);
-          sendLog(successMsg, 'success');
-        }
-      } else {
-        // 성공 시 상품 제목과 가격 정보 출력
-        const logMessage1 = '[NaverProductPageUtil] ✅ 정상 로딩 요소가 나타났습니다.';
-        const logMessage2 = `[NaverProductPageUtil]   - 상품 제목: ${verificationResult.title || '(확인 불가)'}`;
-        const logMessage3 = `[NaverProductPageUtil]   - 상품 가격: ${verificationResult.price || '(확인 불가)'}`;
-        
-        console.log(logMessage1);
-        console.log(logMessage2);
-        console.log(logMessage3);
-        
-        if (sendLog) {
-          sendLog(logMessage1, 'success');
-          sendLog(logMessage2);
-          sendLog(logMessage3);
-        }
-        
-        const successMsg = '[NaverService] ✅ 상품 페이지 정상 로딩 확인 완료';
-        console.log(successMsg);
-        sendLog(successMsg, 'success');
+
+      // 5. verify 단계 — URL 모드와 동일하게 /products/면 스킵.
+      //   - verify의 옛 셀렉터(.P2lBbUWPNi 등)는 페이지 리뉴얼로 무효화됨 → 매번 60초 timeout 낭비
+      //   - 페이지 상태 검증은 새 헬퍼들이 대체:
+      //     · 캡챠/장애 페이지 → naverTabActions.waitForCaptchaIfNeeded (모달 진입 직전 호출)
+      //     · 페이지 로딩 완료 → 모달 진입의 scrollUntilOpenButtonVisible 폴링이 자체 대기
+      //   - URL 자체로 상품페이지인지는 isNaverProductPage가 이미 통과 처리함
+      if (productUrl && productUrl.includes('/products/')) {
+        const skipMsg = '[NaverService] ✅ /products/ URL 확인 — verify 단계 스킵, 모달 진입에서 자체 검증';
+        console.log(skipMsg);
+        sendLog(skipMsg, 'info');
       }
-      
+
       // 6. 리뷰 또는 Q&A 탭으로 이동
       const sortNames = ['랭킹순', '최신순', '평점낮은순'];
       console.log(`[NaverService] clickReviewOrQnATab 호출 - collectionType: ${collectionType}, sort: ${sort} (${sortNames[sort] || '알 수 없음'})`);

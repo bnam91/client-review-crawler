@@ -9,48 +9,98 @@ import { REVIEW } from './naverSelectors.js';
 import { openReviewModal, openQnAModal } from './naverNavigation.js';
 
 /**
- * 캡챠 페이지 감지 + 사용자 해결 대기
- * URL이 /products/이지만 페이지 내용이 캡챠 화면일 때 0개 종료되는 사고 방지.
- * 셀렉터는 productPageUtil.js의 검증된 4개와 동일 (검색어 모드에서 운영 검증됨).
+ * 비정상 페이지 감지 + 자동 회복 대기
+ * URL이 /products/여도 실제 화면이 캡챠/장애 페이지일 때 0개 종료되는 사고 방지.
+ *
+ * 감지 케이스:
+ *  - captcha: 사용자 액션 필요 (캡챠 풀기) — 풀면 자동 진행
+ *  - serviceUnavailable: 네이버 인프라 장애 — 자동 reload 폴링
+ *
+ * 셀렉터는 productPageUtil.js의 검증된 4개 + 인프라 장애 페이지 1개.
  *
  * @param {object} page - Puppeteer page 객체
  * @param {Function|null} sendLog - 사용자 안내 로그 콜백
  * @param {number} maxMs - 최대 대기 시간 (기본 5분)
- * @returns {Promise<boolean>} true=캡챠 없거나 통과 / false=시간 초과
+ * @returns {Promise<boolean>} true=정상 진입 가능 / false=시간 초과
  */
 export async function waitForCaptchaIfNeeded(page, sendLog = null, maxMs = 300000) {
   const start = Date.now();
-  let detected = false;
+  let captchaDetected = false;
+  let serviceDownDetected = false;
+  let lastReloadAt = 0;
+  const RELOAD_INTERVAL_MS = 30000; // 서비스 장애 시 30초마다 reload
+
   while (Date.now() - start < maxMs) {
-    let has;
+    let probe;
     try {
-      has = await page.evaluate(() => !!(
-        document.querySelector('[data-component="cpt_main"]') ||
-        document.querySelector('.captcha_wrap') ||
-        document.querySelector('#rcptForm') ||
-        document.querySelector('#vcptForm')
-      ));
+      probe = await page.evaluate(() => {
+        const captcha = !!(
+          document.querySelector('[data-component="cpt_main"]') ||
+          document.querySelector('.captcha_wrap') ||
+          document.querySelector('#rcptForm') ||
+          document.querySelector('#vcptForm')
+        );
+        // 네이버 페이 인프라 장애 페이지: <strong class="title_error">현재 서비스 접속이 불가합니다.</strong>
+        const errEl = document.querySelector('strong.title_error');
+        const serviceUnavailable = !!errEl &&
+          (errEl.textContent || '').includes('접속이 불가');
+        return { captcha, serviceUnavailable };
+      });
     } catch (e) {
-      // navigation 중에 evaluate가 실패할 수 있음 — 잠시 대기 후 재시도
+      // navigation 중 evaluate 실패 — 잠시 대기 후 재시도
       await new Promise(r => setTimeout(r, 1000));
       continue;
     }
-    if (!has) {
-      if (detected) {
+
+    if (!probe.captcha && !probe.serviceUnavailable) {
+      if (captchaDetected) {
         console.log('[NaverTabActions] ✅ 캡챠 통과 — 크롤링 계속 진행');
         sendLog?.('[정보] 캡챠 통과 — 크롤링 계속 진행', 'success');
       }
+      if (serviceDownDetected) {
+        console.log('[NaverTabActions] ✅ 서비스 회복 — 크롤링 계속 진행');
+        sendLog?.('[정보] 네이버 서비스 회복 — 크롤링 계속 진행', 'success');
+      }
       return true;
     }
-    if (!detected) {
-      console.log('[NaverTabActions] ⚠️ 캡챠 페이지 감지 — 사용자 해결 대기');
-      sendLog?.('[⚠️ 캡챠 감지] 브라우저에서 캡챠를 풀어주세요. 풀면 자동으로 진행됩니다 (최대 5분 대기)', 'warning');
-      detected = true;
+
+    if (probe.captcha) {
+      if (!captchaDetected) {
+        console.log('[NaverTabActions] ⚠️ 캡챠 페이지 감지 — 사용자 해결 대기');
+        sendLog?.('[⚠️ 캡챠 감지] 브라우저에서 캡챠를 풀어주세요. 풀면 자동으로 진행됩니다 (최대 5분 대기)', 'warning');
+        captchaDetected = true;
+      }
+      await new Promise(r => setTimeout(r, 2000));
+      continue;
     }
-    await new Promise(r => setTimeout(r, 2000));
+
+    if (probe.serviceUnavailable) {
+      if (!serviceDownDetected) {
+        console.log('[NaverTabActions] ⚠️ "현재 서비스 접속이 불가합니다" 페이지 감지 — 자동 새로고침 시도');
+        sendLog?.('[⚠️ 네이버 일시 장애] "현재 서비스 접속이 불가합니다" 페이지 감지. 30초마다 자동 새로고침 (최대 5분 대기)', 'warning');
+        serviceDownDetected = true;
+        lastReloadAt = Date.now();
+      } else if (Date.now() - lastReloadAt >= RELOAD_INTERVAL_MS) {
+        try {
+          console.log('[NaverTabActions] 🔄 자동 새로고침');
+          await page.reload({ waitUntil: 'domcontentloaded', timeout: 30000 });
+        } catch (e) {
+          console.log(`[NaverTabActions] ⚠️ reload 실패 (계속 폴링): ${e.message}`);
+        }
+        lastReloadAt = Date.now();
+      }
+      await new Promise(r => setTimeout(r, 2000));
+      continue;
+    }
   }
-  console.log('[NaverTabActions] ❌ 캡챠 대기 시간 초과 (5분)');
-  sendLog?.('[오류] 캡챠 대기 시간 초과 (5분). 다시 시도해주세요.', 'error');
+
+  if (captchaDetected) {
+    console.log('[NaverTabActions] ❌ 캡챠 대기 시간 초과 (5분)');
+    sendLog?.('[오류] 캡챠 대기 시간 초과 (5분). 다시 시도해주세요.', 'error');
+  } else if (serviceDownDetected) {
+    console.log('[NaverTabActions] ❌ 서비스 장애 회복 대기 시간 초과 (5분)');
+    sendLog?.('[오류] 네이버 서비스 회복 대기 시간 초과 (5분). 잠시 후 다시 시도해주세요.', 'error');
+  }
   return false;
 }
 
