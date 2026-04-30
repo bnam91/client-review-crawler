@@ -115,6 +115,8 @@ function createWindow() {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: false,
+      // 패키징된 앱(배포 빌드)에서는 devTools 자체를 비활성화 — F12·메뉴·NODE_ENV 우회 모두 차단
+      devTools: !app.isPackaged,
     },
   });
 
@@ -123,8 +125,8 @@ function createWindow() {
     mainWindow.setMenuBarVisibility(false);
   }
 
-  // 개발 모드 초기화
-  if (isDev) {
+  // 개발 모드 초기화 — 빌드 앱(packaged)에서는 NODE_ENV 우회 시도해도 절대 활성화 안 됨
+  if (isDev && !app.isPackaged) {
     devTools = initDevMode(mainWindow);
   }
   
