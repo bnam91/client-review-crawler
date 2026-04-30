@@ -84,6 +84,13 @@
   min-height: 16px;
 }
 
+.license-contact {
+  font-size: 11px;
+  color: #4a5070;
+  text-align: center;
+  margin-top: 8px;
+}
+
 /* IP 한도 초과 모달 */
 #ip-limit-modal {
   position: fixed;
