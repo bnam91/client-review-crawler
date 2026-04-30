@@ -1066,10 +1066,13 @@ document.addEventListener('DOMContentLoaded', () => {
   // 라이선스 키 제출
   if (licenseSubmitBtn) {
     licenseSubmitBtn.addEventListener('click', async () => {
-      const userId = licenseIdInput?.value.trim();
+      const userId = licenseIdInput?.value.trim().toLowerCase();
       const key = licenseKeyInput?.value.trim().toUpperCase();
 
-      if (!userId) { if (licenseError) licenseError.textContent = 'ID를 입력하세요.'; return; }
+      if (!userId) { if (licenseError) licenseError.textContent = '이메일을 입력하세요.'; return; }
+      // 이메일 형식 검증 (간단 regex — 필드 단순 자체 검증)
+      const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailPattern.test(userId)) { if (licenseError) licenseError.textContent = '이메일 형식이 올바르지 않습니다.'; return; }
       if (!key) { if (licenseError) licenseError.textContent = '라이선스 키를 입력하세요.'; return; }
 
       licenseSubmitBtn.disabled = true;
@@ -1124,7 +1127,7 @@ document.addEventListener('DOMContentLoaded', () => {
       btn.addEventListener('click', async () => {
         const ipToDelete = btn.dataset.ip;
         const licenseKey = licenseKeyInput?.value.trim().toUpperCase();
-        const userId = licenseIdInput?.value.trim();
+        const userId = licenseIdInput?.value.trim().toLowerCase();
         await window.electronAPI.licenseRemoveIp(licenseKey, ipToDelete);
         const reg = await window.electronAPI.licenseRegister(licenseKey, currentIp, userId);
         if (reg.success) applyUser(reg.user);
