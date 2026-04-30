@@ -1139,6 +1139,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     document.getElementById('ip-limit-cancel')?.addEventListener('click', () => {
       ipLimitModal.style.display = 'none';
+      showLicenseOverlay(); // 빈 화면 회피 — 라이선스 입력 화면 복귀
     });
 
     hideLicenseOverlay();
