@@ -41,7 +41,7 @@
   border: 1px solid #2b3050;
   border-radius: 6px;
   color: #e8eaf6;
-  font-size: 15px;
+  font-size: 13px;
   font-weight: 600;
   letter-spacing: 2px;
   padding: 10px 14px;
@@ -62,15 +62,11 @@
   font-weight: 500;
 }
 #license-id-input::placeholder {
-  font-size: 12px;
-  font-weight: 400;
   color: #4a5070;
 }
 
-/* 키 입력란 placeholder는 한글 안내 — letter-spacing/uppercase 제거, 폰트 축소 */
+/* 키 입력란 placeholder는 한글 안내 — letter-spacing/uppercase는 placeholder에만 제거 (입력값은 그대로) */
 #license-key-input::placeholder {
-  font-size: 12px;
-  font-weight: 400;
   color: #4a5070;
   letter-spacing: 0;
   text-transform: none;
