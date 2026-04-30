@@ -9,6 +9,52 @@ import { REVIEW } from './naverSelectors.js';
 import { openReviewModal, openQnAModal } from './naverNavigation.js';
 
 /**
+ * 캡챠 페이지 감지 + 사용자 해결 대기
+ * URL이 /products/이지만 페이지 내용이 캡챠 화면일 때 0개 종료되는 사고 방지.
+ * 셀렉터는 productPageUtil.js의 검증된 4개와 동일 (검색어 모드에서 운영 검증됨).
+ *
+ * @param {object} page - Puppeteer page 객체
+ * @param {Function|null} sendLog - 사용자 안내 로그 콜백
+ * @param {number} maxMs - 최대 대기 시간 (기본 5분)
+ * @returns {Promise<boolean>} true=캡챠 없거나 통과 / false=시간 초과
+ */
+export async function waitForCaptchaIfNeeded(page, sendLog = null, maxMs = 300000) {
+  const start = Date.now();
+  let detected = false;
+  while (Date.now() - start < maxMs) {
+    let has;
+    try {
+      has = await page.evaluate(() => !!(
+        document.querySelector('[data-component="cpt_main"]') ||
+        document.querySelector('.captcha_wrap') ||
+        document.querySelector('#rcptForm') ||
+        document.querySelector('#vcptForm')
+      ));
+    } catch (e) {
+      // navigation 중에 evaluate가 실패할 수 있음 — 잠시 대기 후 재시도
+      await new Promise(r => setTimeout(r, 1000));
+      continue;
+    }
+    if (!has) {
+      if (detected) {
+        console.log('[NaverTabActions] ✅ 캡챠 통과 — 크롤링 계속 진행');
+        sendLog?.('[정보] 캡챠 통과 — 크롤링 계속 진행', 'success');
+      }
+      return true;
+    }
+    if (!detected) {
+      console.log('[NaverTabActions] ⚠️ 캡챠 페이지 감지 — 사용자 해결 대기');
+      sendLog?.('[⚠️ 캡챠 감지] 브라우저에서 캡챠를 풀어주세요. 풀면 자동으로 진행됩니다 (최대 5분 대기)', 'warning');
+      detected = true;
+    }
+    await new Promise(r => setTimeout(r, 2000));
+  }
+  console.log('[NaverTabActions] ❌ 캡챠 대기 시간 초과 (5분)');
+  sendLog?.('[오류] 캡챠 대기 시간 초과 (5분). 다시 시도해주세요.', 'error');
+  return false;
+}
+
+/**
  * 모달 내부 정렬 옵션 적용
  * @param {object} page - Puppeteer page 객체
  * @param {number} sortOption - 0: 랭킹순, 1: 최신순, 2: 평점낮은순, 3: 평점높은순
@@ -102,10 +148,17 @@ export async function setSortOption(page, sortOption) {
  * @param {number} collectionType - 0: 리뷰 수집, 1: Q&A 수집
  * @param {number} sortOption - 0: 랭킹순, 1: 최신순, 2: 평점낮은순
  */
-export async function clickReviewOrQnATab(page, collectionType, sortOption = 0) {
+export async function clickReviewOrQnATab(page, collectionType, sortOption = 0, sendLog = null) {
   // sortOption을 숫자로 변환 (문자열로 전달될 수 있음)
   const sortNum = typeof sortOption === 'string' ? parseInt(sortOption, 10) : (sortOption || 0);
   const sortNames = ['랭킹순', '최신순', '평점낮은순', '평점높은순'];
+
+  // 캡챠 페이지 감지 + 사용자 해결 대기 (URL이 /products/여도 캡챠 화면일 수 있음)
+  const captchaOk = await waitForCaptchaIfNeeded(page, sendLog);
+  if (!captchaOk) {
+    console.log('[NaverTabActions] ❌ 캡챠 미해결 — 모달 진입 중단');
+    return;
+  }
 
   if (collectionType === 0) {
     // 리뷰: 모달 진입

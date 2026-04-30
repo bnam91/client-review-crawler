@@ -130,7 +130,7 @@ export async function handleNaver(browser, page, input, isUrl, collectionType = 
       const sortNames = ['랭킹순', '최신순', '평점낮은순'];
       console.log(`[NaverService] clickReviewOrQnATab 호출 - collectionType: ${collectionType}, sort: ${sort} (${sortNames[sort] || '알 수 없음'})`);
       sendLog(`[진행] 리뷰/Q&A 탭으로 이동 중...`, 'info');
-      await clickReviewOrQnATab(newPage, collectionType, sort);
+      await clickReviewOrQnATab(newPage, collectionType, sort, sendLog);
       
       // 리뷰/Q&A 공용 변수 (최종 요약에서 사용하므로 블록 밖에서 선언)
       let allReviews = [];
@@ -390,7 +390,7 @@ export async function handleNaver(browser, page, input, isUrl, collectionType = 
       const sortNames = ['랭킹순', '최신순', '평점낮은순'];
       console.log(`[NaverService] clickReviewOrQnATab 호출 - collectionType: ${collectionType}, sort: ${sort} (${sortNames[sort] || '알 수 없음'})`);
       sendLog(`[진행] 리뷰/Q&A 탭으로 이동 중...`, 'info');
-      await clickReviewOrQnATab(productPage, collectionType, sort);
+      await clickReviewOrQnATab(productPage, collectionType, sort, sendLog);
       
       // 리뷰 수집일 때 리뷰 추출 (여러 페이지)
       let allReviews = [];
