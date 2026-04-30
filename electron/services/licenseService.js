@@ -45,10 +45,12 @@ export async function findUserByIp(ip) {
     if (!license) return { found: false };
     if (!license.active) return { found: false, reason: 'inactive' };
 
-    // lastAccessAt 업데이트
+    // lastAccessAt 업데이트 + plan 캐시 lazy backfill (옛 도큐 호환)
+    const userUpdateSet = { lastAccessAt: new Date() };
+    if (user.plan !== license.plan) userUpdateSet.plan = license.plan;
     await getDb().collection(COL_USER).updateOne(
       { licenseKey: user.licenseKey },
-      { $set: { lastAccessAt: new Date() } }
+      { $set: userUpdateSet }
     );
 
     return {
@@ -104,9 +106,11 @@ export async function registerLicense(licenseKey, ip, userId = '') {
       // 이미 이 IP가 등록된 경우
       const alreadyRegistered = existing.allowedIps.some(e => e.ip === ip);
       if (alreadyRegistered) {
+        const setOnAlready = { lastAccessAt: new Date() };
+        if (existing.plan !== license.plan) setOnAlready.plan = license.plan;
         await getDb().collection(COL_USER).updateOne(
           { licenseKey },
-          { $set: { lastAccessAt: new Date() } }
+          { $set: setOnAlready }
         );
         return {
           success: true,
@@ -128,6 +132,7 @@ export async function registerLicense(licenseKey, ip, userId = '') {
       const newIpEntry = { ip, alias: '', registeredAt: new Date() };
       const updateSet = { lastAccessAt: new Date() };
       if (!existing.userId && userId) updateSet.userId = userId;
+      if (existing.plan !== license.plan) updateSet.plan = license.plan; // plan 캐시 동기화
       await getDb().collection(COL_USER).updateOne(
         { licenseKey },
         {
@@ -146,6 +151,7 @@ export async function registerLicense(licenseKey, ip, userId = '') {
     const newUser = {
       licenseKey,
       userId,
+      plan: license.plan, // plan 캐시 — Atlas에서 한눈에 확인 가능
       allowedIps: [{ ip, alias: '', registeredAt: new Date() }],
       lastAccessAt: new Date(),
       isRoot: false,
