@@ -89,17 +89,16 @@ if (packageJson.build && packageJson.build.publish) {
   console.log('⚠️  GitHub 릴리즈 설정이 없습니다. package.json의 build.publish를 확인하세요.\n');
 }
 
-// 개발 환경에서는 자동 다운로드 비활성화
-// macOS에서는 자동 다운로드만 비활성화 (체크는 가능)
+// 자동 다운로드/설치 비활성화 — D 옵션 (자체 알림 + 외부 링크)
+// 이유: macOS unsigned 빌드는 Squirrel.Mac 코드서명 검증 단계에서 자동업데이트 실패.
+//       Windows도 환경에 따라 차단될 수 있음.
+//       대신 새 버전 감지 시 logBox에 "다운로드 받으러 가기" 링크 표시 → 사용자가 직접 받음.
+autoUpdater.autoDownload = false;
+autoUpdater.autoInstallOnAppQuit = false;
+
 if (isDev || process.argv.includes('--dev')) {
-  autoUpdater.autoDownload = false;
-  autoUpdater.autoInstallOnAppQuit = false;
   // 개발 모드에서도 업데이트 체크 가능하도록 설정
   autoUpdater.forceDevUpdateConfig = true;
-} else if (process.platform === 'darwin') {
-  // macOS에서도 자동 다운로드 활성화
-  autoUpdater.autoDownload = true;
-  autoUpdater.autoInstallOnAppQuit = true;
 }
 
 function createWindow() {
@@ -361,16 +360,11 @@ async function checkForUpdates() {
         console.log('   ⚠️  개발 모드에서는 자동 업데이트가 불가능합니다.');
         console.log('   릴리즈 페이지에서 수동으로 다운로드하세요.\n');
         
-        if (mainWindow) {
-          mainWindow.webContents.send('update-status', {
-            status: 'update-available',
-            data: { 
-              version: latestTag,
-              releaseUrl: releaseInfo.html_url,
-              isDevMode: true
-            }
-          });
-        }
+        sendStatusToWindow('update-available', {
+          version: latestTag,
+          releaseUrl: releaseInfo.html_url,
+          isDevMode: true,
+        });
       } else {
         console.log('\n✅ ========================================');
         console.log('   최신 버전입니다!');
@@ -379,12 +373,7 @@ async function checkForUpdates() {
         console.log(`   최신 버전: ${latestTag || currentVersion}`);
         console.log('========================================\n');
         
-        if (mainWindow) {
-          mainWindow.webContents.send('update-status', {
-            status: 'update-not-available',
-            data: { version: latestTag || currentVersion }
-          });
-        }
+        sendStatusToWindow('update-not-available', { version: latestTag || currentVersion });
       }
     } catch (error) {
       console.log(`\n⚠️  GitHub API 확인 실패: ${error.message}`);
@@ -467,9 +456,26 @@ autoUpdater.on('update-downloaded', (info) => {
   sendStatusToWindow('update-downloaded', info);
 });
 
-// 렌더러에 업데이트 상태 전송
+// OS별 구글드라이브 다운로드 폴더 URL — D 옵션의 외부 링크
+function getDownloadFolderUrl() {
+  const DRIVE_FOLDERS = {
+    macArm64: 'https://drive.google.com/drive/folders/1gtU0UhSqju5oH0hjp_ib3fzDXff2v0bE',
+    macIntel: 'https://drive.google.com/drive/folders/1rk9L9omVBfZXgvHqk2eOdaqU2CY7xZSJ',
+    windows:  'https://drive.google.com/drive/folders/1w7lygD3cURcd0ecHYYp8wvKZHM5QlcUU',
+  };
+  if (process.platform === 'darwin') {
+    return process.arch === 'arm64' ? DRIVE_FOLDERS.macArm64 : DRIVE_FOLDERS.macIntel;
+  }
+  if (process.platform === 'win32') return DRIVE_FOLDERS.windows;
+  return DRIVE_FOLDERS.macArm64; // fallback
+}
+
+// 렌더러에 업데이트 상태 전송 (OS별 다운로드 URL 자동 포함)
 function sendStatusToWindow(status, data) {
   if (mainWindow) {
-    mainWindow.webContents.send('update-status', { status, data });
+    const enrichedData = data && typeof data === 'object'
+      ? { ...data, downloadFolderUrl: getDownloadFolderUrl() }
+      : { downloadFolderUrl: getDownloadFolderUrl() };
+    mainWindow.webContents.send('update-status', { status, data: enrichedData });
   }
 }

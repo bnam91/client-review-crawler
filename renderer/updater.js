@@ -11,65 +11,33 @@ if (window.electronAPI && window.electronAPI.onUpdateStatus) {
       return;
     }
     
+    // D 옵션: 자동 다운/설치 안 함. logBox에 메시지만 표시 + 새 버전이면 다운로드 링크.
+    // 큰 알림 모달(notification)은 더 이상 사용 안 함 — 항상 숨김.
+    notification.style.display = 'none';
+
     switch (status) {
       case 'checking-for-update':
-        notification.style.display = 'block';
-        title.textContent = '업데이트 확인 중...';
-        message.textContent = '새로운 버전을 확인하고 있습니다.';
+        // 조용히 — logBox에 따로 표시 안 함 (소음 방지)
         break;
-        
-      case 'update-available':
-        title.textContent = '새로운 업데이트 발견!';
-        if (data.isDevMode) {
-          message.textContent = `버전 ${data.version}이 사용 가능합니다. (개발 모드에서는 수동 다운로드 필요)`;
-          // 개발 모드에서는 릴리즈 페이지로 이동하는 버튼 표시
-          if (data.releaseUrl) {
-            const actions = document.getElementById('update-actions');
-            if (actions) {
-              actions.innerHTML = `
-                <button id="update-download-btn" onclick="window.openReleasePage('${data.releaseUrl}')">릴리즈 페이지 열기</button>
-                <button id="update-later-btn" onclick="window.hideUpdateNotification()">나중에</button>
-              `;
-              actions.style.display = 'block';
-            }
-          }
-        } else {
-          message.textContent = `버전 ${data.version}이 사용 가능합니다.`;
-        }
+
+      case 'update-available': {
+        const ver = data?.version || '?';
+        const url = data?.downloadFolderUrl || data?.releaseUrl || '';
+        // logBox에 한 줄로 표시 + 클릭 가능한 링크
+        addUpdateAvailableLogLine(ver, url);
         break;
-        
+      }
+
       case 'update-not-available':
-        title.textContent = '최신 버전입니다';
-        message.textContent = '현재 최신 버전을 사용하고 있습니다.';
-        // 로그 박스에 메시지 추가
+        // 옛 코드의 메시지 그대로 — 다른 [정보] 라인과 톤 통일
         addLogToLogBox('[정보] 현재 최신 버전을 사용하고 있습니다.', 'success');
-        setTimeout(() => {
-          notification.style.display = 'none';
-        }, 3000);
         break;
-        
-      case 'download-progress':
-        title.textContent = '업데이트 다운로드 중...';
-        progress.style.display = 'block';
-        const percent = Math.round(data.percent);
-        document.getElementById('progress-fill').style.width = percent + '%';
-        document.getElementById('progress-text').textContent = percent + '%';
-        break;
-        
-      case 'update-downloaded':
-        title.textContent = '업데이트 준비 완료!';
-        message.textContent = '업데이트가 다운로드되었습니다. 지금 설치하시겠습니까?';
-        progress.style.display = 'none';
-        actions.style.display = 'block';
-        break;
-        
+
       case 'error':
-        title.textContent = '업데이트 오류';
-        message.textContent = '업데이트 중 문제가 발생했습니다.';
-        setTimeout(() => {
-          notification.style.display = 'none';
-        }, 5000);
+        // 업데이트 체크 실패 — 사용자에게 노출 안 함 (네트워크 일시 단절 등 흔한 케이스)
         break;
+
+      // download-progress / update-downloaded — autoDownload 비활성화로 도달 안 함
     }
   });
 }
@@ -102,13 +70,44 @@ function openReleasePage(url) {
 function addLogToLogBox(message, className = '') {
   const logBox = document.getElementById('log-box');
   if (!logBox) return;
-  
+
   const line = document.createElement('div');
   line.className = `log-line ${className}`;
   line.textContent = message;
   logBox.appendChild(line);
-  
+
   // 로그 박스 스크롤을 맨 아래로
+  logBox.scrollTop = logBox.scrollHeight;
+}
+
+// 새 버전 알림 — 클릭하면 OS별 다운로드 폴더 외부 브라우저로 열림
+function addUpdateAvailableLogLine(version, url) {
+  const logBox = document.getElementById('log-box');
+  if (!logBox) return;
+
+  const line = document.createElement('div');
+  line.className = 'log-line update-available';
+  line.style.cursor = url ? 'pointer' : 'default';
+  line.title = url ? '클릭하면 다운로드 폴더가 열립니다' : '';
+
+  const text = document.createElement('span');
+  text.textContent = `🆕 새 버전 v${version} 출시! `;
+  line.appendChild(text);
+
+  if (url) {
+    const link = document.createElement('span');
+    link.textContent = '[다운로드 받기]';
+    link.style.color = '#7aaaff';
+    link.style.textDecoration = 'underline';
+    line.appendChild(link);
+    line.addEventListener('click', () => {
+      if (window.electronAPI?.openExternalUrl) {
+        window.electronAPI.openExternalUrl(url);
+      }
+    });
+  }
+
+  logBox.appendChild(line);
   logBox.scrollTop = logBox.scrollHeight;
 }
 

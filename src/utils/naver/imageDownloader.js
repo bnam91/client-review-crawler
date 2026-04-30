@@ -2,6 +2,7 @@
  * 리뷰 이미지 다운로드 유틸리티
  */
 import { writeFile, mkdir } from 'fs/promises';
+import { existsSync } from 'fs';
 import { join } from 'path';
 import https from 'https';
 import http from 'http';
@@ -95,10 +96,20 @@ export async function downloadAndSaveReviewImage(imageUrl, photoFolderPath, curr
     }
     
     console.log(`[ImageDownloader] 원본 URL: ${originalUrl}`);
-    
+
+    // 파일명 생성: review_page{페이지번호}_{리뷰순서}_photo_{사진순서}.jpg
+    const filename = `review_page${currentPage}_${reviewIndex + 1}_photo_${photoIndex + 1}.jpg`;
+    const filepath = join(photoFolderPath, filename);
+
+    // 청크 단위 점진 저장 시 중복 다운로드 방지: 이미 존재하면 다운로드 자체를 스킵
+    if (existsSync(filepath)) {
+      console.log(`[ImageDownloader] ⏭️ 이미 존재하는 이미지, 스킵: ${filepath}`);
+      return filepath;
+    }
+
     // 이미지 다운로드
     const imageData = await downloadImage(originalUrl, 10000);
-    
+
     // 저장 폴더가 없으면 생성
     try {
       await mkdir(photoFolderPath, { recursive: true });
@@ -107,11 +118,7 @@ export async function downloadAndSaveReviewImage(imageUrl, photoFolderPath, curr
         throw error;
       }
     }
-    
-    // 파일명 생성: review_page{페이지번호}_{리뷰순서}_photo_{사진순서}.jpg
-    const filename = `review_page${currentPage}_${reviewIndex + 1}_photo_${photoIndex + 1}.jpg`;
-    const filepath = join(photoFolderPath, filename);
-    
+
     // 파일 저장
     await writeFile(filepath, imageData);
     
