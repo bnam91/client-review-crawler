@@ -94,6 +94,12 @@ export async function registerLicense(licenseKey, ip, userId = '') {
     const existing = await getDb().collection(COL_USER).findOne({ licenseKey });
 
     if (existing) {
+      // userId mismatch 검사 — 키는 맞는데 이미 다른 userId(이메일)로 등록되어 있으면 거부
+      // (덮어쓰기 방지: 정당한 사용자의 기록이 사라지거나 키 누설 시 임의 변조되는 것을 차단)
+      if (existing.userId && userId && existing.userId !== userId) {
+        return { success: false, reason: 'userId_mismatch' };
+      }
+
       // 이미 이 IP가 등록된 경우
       const alreadyRegistered = existing.allowedIps.some(e => e.ip === ip);
       if (alreadyRegistered) {
@@ -117,19 +123,21 @@ export async function registerLicense(licenseKey, ip, userId = '') {
         };
       }
 
-      // IP 추가
+      // IP 추가 — userId는 기존 값이 있으면 덮어쓰지 않음. 비어있을 때만 첫 set.
       const newIpEntry = { ip, alias: '', registeredAt: new Date() };
+      const updateSet = { lastAccessAt: new Date() };
+      if (!existing.userId && userId) updateSet.userId = userId;
       await getDb().collection(COL_USER).updateOne(
         { licenseKey },
         {
           $push: { allowedIps: newIpEntry },
-          $set: { lastAccessAt: new Date(), ...(userId && { userId }) },
+          $set: updateSet,
         }
       );
       const updated = existing.allowedIps.concat(newIpEntry);
       return {
         success: true,
-        user: { licenseKey, userId: userId || existing.userId, plan: license.plan, allowedIps: updated },
+        user: { licenseKey, userId: existing.userId || userId, plan: license.plan, allowedIps: updated },
       };
     }
 

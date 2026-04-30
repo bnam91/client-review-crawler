@@ -1092,8 +1092,9 @@ document.addEventListener('DOMContentLoaded', () => {
         const messages = {
           invalid_key: '유효하지 않은 라이선스 키입니다.',
           inactive: '만료된 라이선스입니다.',
-          userId_reserved: '사용할 수 없는 user_id입니다.',
-          userId_taken: '이미 사용 중인 user_id입니다.',
+          userId_reserved: '사용할 수 없는 이메일입니다.',
+          userId_taken: '이미 사용 중인 이메일입니다.',
+          userId_mismatch: '이 라이선스 키에 등록된 이메일과 일치하지 않습니다.',
           error: `오류: ${result.error}`,
         };
         if (licenseError) licenseError.textContent = messages[result.reason] || '인증 실패';
