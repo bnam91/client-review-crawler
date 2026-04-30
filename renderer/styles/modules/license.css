@@ -53,6 +53,20 @@
   border-color: #2b76ff;
 }
 
+/* 이메일 입력란은 한글 placeholder 길이 + 일반 텍스트라 letter-spacing·uppercase 제거 */
+#license-id-input {
+  font-size: 13px;
+  letter-spacing: 0;
+  text-transform: none;
+  text-align: left;
+  font-weight: 500;
+}
+#license-id-input::placeholder {
+  font-size: 12px;
+  font-weight: 400;
+  color: #4a5070;
+}
+
 .license-error {
   font-size: 12px;
   color: #ff5c5c;
