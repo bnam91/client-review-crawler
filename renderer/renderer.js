@@ -1100,8 +1100,9 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     });
 
-    licenseKeyInput?.addEventListener('keydown', (e) => { if (e.key === 'Enter') licenseSubmitBtn.click(); });
-    licenseIdInput?.addEventListener('keydown', (e) => { if (e.key === 'Enter') licenseKeyInput?.focus(); });
+    // Tab 순서: 키 → 이메일 → 확인 (입력란 시각 순서와 동일)
+    licenseKeyInput?.addEventListener('keydown', (e) => { if (e.key === 'Enter') licenseIdInput?.focus(); });
+    licenseIdInput?.addEventListener('keydown', (e) => { if (e.key === 'Enter') licenseSubmitBtn.click(); });
   }
 
   // IP 한도 초과 모달
