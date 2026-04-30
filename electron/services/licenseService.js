@@ -10,6 +10,7 @@ const MONGO_URI = 'mongodb+srv://coq3820:JmbIOcaEOrvkpQo1@cluster0.qj1ty.mongodb
 const DB_NAME = 'client_db';
 const COL_LICENSE = 'review_crawler_license';
 const COL_USER = 'review_crawler';
+const COL_DIAGNOSTIC = 'review_crawler_diagnostics';
 const MAX_IPS = 5;
 
 let client = null;
@@ -61,6 +62,8 @@ export async function findUserByIp(ip) {
         plan: license.plan,
         allowedIps: user.allowedIps,
         isRoot: !!user.isRoot,
+        // license 도큐의 매직 필드 "119": true → 진단 체크박스 노출 권한
+        diagnosticEnabled: !!license['119'],
       },
     };
   } catch (e) {
@@ -114,7 +117,7 @@ export async function registerLicense(licenseKey, ip, userId = '') {
         );
         return {
           success: true,
-          user: { licenseKey, userId: existing.userId, plan: license.plan, allowedIps: existing.allowedIps, isRoot: !!existing.isRoot },
+          user: { licenseKey, userId: existing.userId, plan: license.plan, allowedIps: existing.allowedIps, isRoot: !!existing.isRoot, diagnosticEnabled: !!license['119'] },
         };
       }
 
@@ -143,7 +146,7 @@ export async function registerLicense(licenseKey, ip, userId = '') {
       const updated = existing.allowedIps.concat(newIpEntry);
       return {
         success: true,
-        user: { licenseKey, userId: existing.userId || userId, plan: license.plan, allowedIps: updated, isRoot: !!existing.isRoot },
+        user: { licenseKey, userId: existing.userId || userId, plan: license.plan, allowedIps: updated, isRoot: !!existing.isRoot, diagnosticEnabled: !!license['119'] },
       };
     }
 
@@ -159,7 +162,7 @@ export async function registerLicense(licenseKey, ip, userId = '') {
     await getDb().collection(COL_USER).insertOne(newUser);
     return {
       success: true,
-      user: { licenseKey, userId, plan: license.plan, allowedIps: newUser.allowedIps, isRoot: false },
+      user: { licenseKey, userId, plan: license.plan, allowedIps: newUser.allowedIps, isRoot: false, diagnosticEnabled: !!license['119'] },
       isNew: true,
     };
   } catch (e) {
@@ -263,6 +266,25 @@ export async function listLicenseKeys() {
       .limit(10)
       .toArray();
     return { success: true, list };
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+}
+
+/**
+ * 진단 로그 자동 전송 — 사용자가 "진단 로그 전송" 체크 시 크롤링 종료 후 호출.
+ * 무한 스크롤 동작 정보·앱 메타·결과만 저장. 리뷰 본문/이미지/개인정보는 저장 안 함.
+ * @param {object} payload - { timestamp, licenseKey, userId, appVersion, platform, arch, crawlInput, crawlResult, diagnostics }
+ * @returns {{ success: boolean, error? }}
+ */
+export async function uploadDiagnostic(payload) {
+  try {
+    await getClient();
+    await getDb().collection(COL_DIAGNOSTIC).insertOne({
+      ...payload,
+      createdAt: new Date(),
+    });
+    return { success: true };
   } catch (e) {
     return { success: false, error: e.message };
   }

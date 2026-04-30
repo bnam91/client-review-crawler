@@ -325,6 +325,12 @@ document.addEventListener('DOMContentLoaded', () => {
       openFolderCheckbox.classList.toggle('checked');
     });
   }
+  const enableDiagnosticCheckbox = document.getElementById('enable-diagnostic');
+  if (enableDiagnosticCheckbox) {
+    enableDiagnosticCheckbox.addEventListener('click', () => {
+      enableDiagnosticCheckbox.classList.toggle('checked');
+    });
+  }
 
   // 업데이트 체크 버튼
   const updateCheckBtn = document.getElementById('update-check-btn');
@@ -530,12 +536,17 @@ document.addEventListener('DOMContentLoaded', () => {
           const smallImage = imageMode === 'small';
           console.log(`[Renderer] smallImage: ${smallImage}`);
 
+          // 진단 로그 전송 체크박스 상태 확인 — 옵트인 시 크롤링 종료 후 MongoDB로 자동 업로드
+          const enableDiagnosticCheckbox = document.getElementById('enable-diagnostic');
+          const enableDiagnostic = enableDiagnosticCheckbox && enableDiagnosticCheckbox.classList.contains('checked');
+          console.log(`[Renderer] 진단 로그 전송: ${enableDiagnostic}`);
+
           console.log(`  - 저장 경로: ${savePath}`);
           addLog(`[경로] 저장 경로: ${savePath}`);
 
           addLog(`[브라우저] ${url}를 브라우저에서 엽니다...`);
           showStatusMessage('브라우저를 열고 있습니다...', 'info');
-          const result = await window.electronAPI.openUrlInBrowser(url, state.platform, state.collectionType, state.sort, state.pages, customPages, savePath, openFolder, excludeSecret, downloadImages, smallImage);
+          const result = await window.electronAPI.openUrlInBrowser(url, state.platform, state.collectionType, state.sort, state.pages, customPages, savePath, openFolder, excludeSecret, downloadImages, smallImage, enableDiagnostic);
           if (result.success) {
             addLog(`[브라우저] 브라우저에서 URL을 열었습니다.`);
             showStatusMessage('브라우저에서 URL을 열었습니다.', 'success');
@@ -845,6 +856,7 @@ document.addEventListener('DOMContentLoaded', () => {
         plan: 0, // 모든 플랫폼 가능
         allowedIps: [],
         isRoot: true, // dev 모드에서는 admin 모달도 접근 가능
+        diagnosticEnabled: true, // dev 모드에서는 진단 체크박스도 노출
       });
       return;
     }
@@ -904,6 +916,9 @@ document.addEventListener('DOMContentLoaded', () => {
     // root면 관리자 버튼 표시 — DB의 isRoot:true 플래그 기준 (이메일 식별자에 종속 없이 운영)
     const adminBtn = document.getElementById('admin-btn');
     if (adminBtn) adminBtn.style.display = user.isRoot ? 'inline-flex' : 'none';
+    // 진단 체크박스 노출 — license 도큐의 "119": true 일 때만 (관리자가 클레임 사용자에게 부여)
+    const diagGroup = document.getElementById('enable-diagnostic-group');
+    if (diagGroup) diagGroup.style.display = user.diagnosticEnabled ? 'flex' : 'none';
     console.log(`[License] 인증 완료: ${user.userId} / plan:${user.plan} / isRoot:${!!user.isRoot}`);
   }
 

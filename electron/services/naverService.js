@@ -3,6 +3,7 @@
  */
 // productPageUtil의 verify는 페이지 리뉴얼로 옛 셀렉터가 무효화되어 사용 중단.
 // 페이지 상태 검증은 naverTabActions.waitForCaptchaIfNeeded + 모달 진입 폴링이 대체.
+import { uploadDiagnostic, findUserByIp } from './licenseService.js';
 import { navigateToNaver, createNaverSearchUrl, isNaverProductPage, waitForNaverProductPage, closeReviewModal, closeQnAModal } from './naver/naverNavigation.js';
 import { clickReviewOrQnATab } from './naver/naverTabActions.js';
 import { extractAllReviews } from './naver/naverReviewExtractor.js';
@@ -48,8 +49,58 @@ function getMaxPages(pages, customPages = null) {
  * @param {boolean} excludeSecret - 비밀글 제외 여부 (Q&A 수집일 때만 사용)
  * @param {object} webContents - Electron webContents 객체 (로그 전송용)
  */
-export async function handleNaver(browser, page, input, isUrl, collectionType = 0, sort = 0, pages = 0, customPages = null, savePath = '', excludeSecret = false, webContents = null, downloadImages = true, smallImage = false) {
-  
+export async function handleNaver(browser, page, input, isUrl, collectionType = 0, sort = 0, pages = 0, customPages = null, savePath = '', excludeSecret = false, webContents = null, downloadImages = true, smallImage = false, enableDiagnostic = false) {
+
+  // 진단 객체 — 사용자가 옵트인 시 무한 스크롤 동작 정보 수집해서 크롤링 종료 후 MongoDB 업로드
+  const diagnostic = enableDiagnostic ? {
+    scrollContainer: null,
+    scrollAttempts: [],
+    terminationReason: null,
+  } : null;
+
+  // 진단 업로드 — 크롤링 끝(성공/실패 무관) 시 호출. 리뷰 본문/이미지/개인정보는 안 보냄.
+  async function uploadDiagnosticIfEnabled(crawlInput, crawlResult) {
+    if (!enableDiagnostic || !diagnostic) return;
+    try {
+      // userId 식별 (현재 등록된 IP 기반) — best-effort
+      let licenseKey = '';
+      let userId = '';
+      let isRoot = false;
+      try {
+        const fetchModule = await import('node:https');
+        const ip = await new Promise((resolve) => {
+          fetchModule.default.get('https://api.ipify.org', (res) => {
+            let data = '';
+            res.on('data', (c) => data += c);
+            res.on('end', () => resolve(data.trim()));
+            res.on('error', () => resolve(''));
+          }).on('error', () => resolve(''));
+        });
+        if (ip) {
+          const r = await findUserByIp(ip);
+          if (r.found) { licenseKey = r.user.licenseKey; userId = r.user.userId; isRoot = !!r.user.isRoot; }
+        }
+      } catch {}
+
+      const { app: electronApp } = await import('electron');
+      const appVersion = electronApp.getVersion();
+
+      await uploadDiagnostic({
+        timestamp: new Date(),
+        licenseKey, userId, isRoot,
+        appVersion,
+        platform: process.platform,
+        arch: process.arch,
+        crawlInput,
+        crawlResult,
+        diagnostics: diagnostic,
+      });
+      sendLog('[정보] 진단 로그가 전송되었습니다 — 분석에 활용됩니다', 'success');
+    } catch (e) {
+      console.log(`[NaverService] 진단 로그 전송 실패 (무시): ${e.message}`);
+    }
+  }
+
   // 세션 폴더명 초기화 (새 크롤링 시작) 및 접두사 설정
   resetSessionFolderName();
   const folderPrefix = collectionType === 0 ? 'review' : 'qna';
@@ -223,7 +274,7 @@ export async function handleNaver(browser, page, input, isUrl, collectionType = 
             : Math.min(prevCount + CHUNK_SIZE_REVIEWS, originalTargetCount);
 
           sendLog(`[진행] 청크 ${chunkNum} — 무한 스크롤 (목표 ${target}개)...`, 'info', true);
-          const reachedCount = await loadMoreReviews(newPage, target);
+          const reachedCount = await loadMoreReviews(newPage, target, { diagnostic, chunkNum });
           sendLog(`[진행] 청크 ${chunkNum} — ${reachedCount}개 로드됨, 추출 중...`, 'info', true);
 
           const all = await extractAllReviews(newPage, photoFolderPath, 1, { downloadImages, smallImage, sendLog });
@@ -298,6 +349,10 @@ export async function handleNaver(browser, page, input, isUrl, collectionType = 
         finalCountMessage = `총 ${allQnAs.length}개 Q&A`;
       }
       sendLog(`[완료] 크롤링이 완료되었습니다. (${finalCountMessage})`, 'success');
+      await uploadDiagnosticIfEnabled(
+        { input, isUrl, collectionType, sort, pages, customPages },
+        { success: true, totalReviews: allReviews.length, totalQnAs: allQnAs.length }
+      );
       return {
         success: true,
         message: '상품 페이지로 이동하고 리뷰/Q&A 탭을 클릭했습니다.',
@@ -454,7 +509,7 @@ export async function handleNaver(browser, page, input, isUrl, collectionType = 
             : Math.min(prevCount + CHUNK_SIZE_REVIEWS, originalTargetCount);
 
           sendLog(`[진행] 청크 ${chunkNum} — 무한 스크롤 (목표 ${target}개)...`, 'info', true);
-          const reachedCount = await loadMoreReviews(productPage, target);
+          const reachedCount = await loadMoreReviews(productPage, target, { diagnostic, chunkNum });
           sendLog(`[진행] 청크 ${chunkNum} — ${reachedCount}개 로드됨, 추출 중...`, 'info', true);
 
           const all = await extractAllReviews(productPage, photoFolderPath, 1, { downloadImages, smallImage, sendLog });
@@ -529,6 +584,10 @@ export async function handleNaver(browser, page, input, isUrl, collectionType = 
         finalCountMessage = `총 ${allQnAs.length}개 Q&A`;
       }
       sendLog(`[완료] 크롤링이 완료되었습니다. (${finalCountMessage})`, 'success');
+      await uploadDiagnosticIfEnabled(
+        { input, isUrl, collectionType, sort, pages, customPages },
+        { success: true, totalReviews: allReviews.length, totalQnAs: allQnAs.length }
+      );
       return {
         success: true,
         message: '상품 페이지로 이동하고 리뷰/Q&A 탭을 클릭했습니다.',

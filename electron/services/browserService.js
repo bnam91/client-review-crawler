@@ -112,7 +112,7 @@ function isUrl(input) {
  * @param {boolean} downloadImages - 리뷰 이미지 다운로드 여부 (기본 true)
  * @param {boolean} smallImage - 이미지 작게 받기 여부 (기본 false, true면 480px 작은 이미지 다운로드)
  */
-export async function openUrlInBrowser(input, platform = 0, collectionType = 0, sort = 0, pages = 0, customPages = null, savePath = '', openFolder = false, excludeSecret = false, webContents = null, downloadImages = true, smallImage = false) {
+export async function openUrlInBrowser(input, platform = 0, collectionType = 0, sort = 0, pages = 0, customPages = null, savePath = '', openFolder = false, excludeSecret = false, webContents = null, downloadImages = true, smallImage = false, enableDiagnostic = false) {
   let browser = null;
   
   try {
@@ -317,7 +317,7 @@ export async function openUrlInBrowser(input, platform = 0, collectionType = 0, 
       result = await handleCoupang(browser, page, input, inputIsUrl, collectionType, sort, pages, customPages, savePath, excludeSecret, webContents);
     } else {
       // 네이버 플랫폼 처리 (기본값)
-      result = await handleNaver(browser, page, input, inputIsUrl, collectionType, sort, pages, customPages, savePath, excludeSecret, webContents, downloadImages, smallImage);
+      result = await handleNaver(browser, page, input, inputIsUrl, collectionType, sort, pages, customPages, savePath, excludeSecret, webContents, downloadImages, smallImage, enableDiagnostic);
     }
     
     // 크롤링 완료 후 폴더 열기

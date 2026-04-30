@@ -36,7 +36,8 @@ export async function getReviewCount(page) {
  * @param {number} targetCount - 목표 리뷰 개수 (기본 Infinity)
  * @returns {Promise<number>} 최종 리뷰 개수
  */
-export async function loadMoreReviews(page, targetCount = Infinity) {
+export async function loadMoreReviews(page, targetCount = Infinity, options = {}) {
+  const { diagnostic = null, chunkNum = 1 } = options;
   console.log(`[NaverPagination] ♾️ 무한 스크롤 시작 (목표: ${targetCount === Infinity ? '전체' : targetCount}개)`);
 
   const MAX_ATTEMPTS = 200;            // 30→200 (대량 리뷰 대응)
@@ -44,6 +45,40 @@ export async function loadMoreReviews(page, targetCount = Infinity) {
   const SCROLL_WAIT_MS = 1500;         // 800→1500 (느린 회선 안전)
   const STABLE_RECHECK_WAIT_MS = 2500; // 동결 의심 시 추가 한 번 대기 (lazy load 늦은 응답 대응)
   const STABLE_THRESHOLD = 3;          // 2→3회 연속 동결 필요
+
+  // 진단 — 첫 청크 시작 시점에 모달 내부 구조 dump (사용자 환경에서 scroll container 매치 여부 확인용)
+  if (diagnostic && chunkNum === 1 && !diagnostic.scrollContainer) {
+    try {
+      diagnostic.scrollContainer = await page.evaluate((sel) => {
+        const dialogs = Array.from(document.querySelectorAll('[role="dialog"]'));
+        const dialog = dialogs.find(d => d.querySelector('li[id^="REVIEW_ITEM_"]'));
+        const hardcoded = document.querySelector(sel);
+        const candidates = dialog ? Array.from(dialog.querySelectorAll('*')).filter(el => {
+          const cs = getComputedStyle(el);
+          return (cs.overflowY === 'auto' || cs.overflowY === 'scroll') && el.scrollHeight > el.clientHeight;
+        }).slice(0, 10).map(el => ({
+          tag: el.tagName,
+          class: (el.className || '').toString().slice(0, 100),
+          scrollHeight: el.scrollHeight,
+          clientHeight: el.clientHeight,
+        })) : [];
+        return {
+          hardcodedSelector: sel,
+          hardcodedMatched: !!hardcoded,
+          hardcodedInfo: hardcoded ? {
+            scrollHeight: hardcoded.scrollHeight,
+            clientHeight: hardcoded.clientHeight,
+            overflow: getComputedStyle(hardcoded).overflowY,
+          } : null,
+          dialogFound: !!dialog,
+          dialogLiCount: dialog ? dialog.querySelectorAll('li[id^="REVIEW_ITEM_"]').length : 0,
+          candidates,
+        };
+      }, REVIEW.scrollContainerSelector);
+    } catch (e) {
+      diagnostic.scrollContainer = { error: e.message };
+    }
+  }
 
   const startTime = Date.now();
   let lastScrollHeight = -1;
@@ -64,6 +99,7 @@ export async function loadMoreReviews(page, targetCount = Infinity) {
     // 목표 도달 체크
     if (currentCount >= targetCount) {
       console.log(`[NaverPagination]   🎯 목표 리뷰 개수(${targetCount}) 도달`);
+      if (diagnostic && !diagnostic.terminationReason) diagnostic.terminationReason = 'target_reached';
       break;
     }
 
@@ -77,6 +113,7 @@ export async function loadMoreReviews(page, targetCount = Infinity) {
 
     if (scrollHeight === -1) {
       console.log(`[NaverPagination]   ⚠️ scroll container를 찾을 수 없습니다.`);
+      if (diagnostic) diagnostic.terminationReason = 'no_scroll_container';
       break;
     }
 
@@ -105,6 +142,18 @@ export async function loadMoreReviews(page, targetCount = Infinity) {
       console.log(`[NaverPagination]   📈 시도 ${attempt + 1}: ${currentCount} → ${newCount} (scrollHeight=${scrollHeight})`);
     }
 
+    // 진단 — 매 시도 결과 push (chunk 단위로 묶어서)
+    if (diagnostic) {
+      diagnostic.scrollAttempts.push({
+        chunk: chunkNum,
+        attempt: attempt + 1,
+        before: currentCount,
+        after: newCount,
+        delta: newCount - currentCount,
+        scrollHeight,
+      });
+    }
+
     currentCount = newCount;
 
     // 종료 의심 — 추가 대기로 lazy load 응답 한 번 더 확인
@@ -129,6 +178,7 @@ export async function loadMoreReviews(page, targetCount = Infinity) {
       }
 
       console.log(`[NaverPagination]   🛑 더 이상 리뷰가 로드되지 않습니다 (시도 ${attempt + 1}회, 추가 대기로도 변동 없음)`);
+      if (diagnostic) diagnostic.terminationReason = 'stable_threshold';
       break;
     }
   }
