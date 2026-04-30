@@ -4,6 +4,10 @@ on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write  # GitHub Releases 생성·자산 업로드에 필요
 
 jobs:
   build:
