@@ -58,6 +58,7 @@ export async function findUserByIp(ip) {
         userId: user.userId,
         plan: license.plan,
         allowedIps: user.allowedIps,
+        isRoot: !!user.isRoot,
       },
     };
   } catch (e) {
@@ -109,7 +110,7 @@ export async function registerLicense(licenseKey, ip, userId = '') {
         );
         return {
           success: true,
-          user: { licenseKey, userId: existing.userId, plan: license.plan, allowedIps: existing.allowedIps },
+          user: { licenseKey, userId: existing.userId, plan: license.plan, allowedIps: existing.allowedIps, isRoot: !!existing.isRoot },
         };
       }
 
@@ -137,21 +138,22 @@ export async function registerLicense(licenseKey, ip, userId = '') {
       const updated = existing.allowedIps.concat(newIpEntry);
       return {
         success: true,
-        user: { licenseKey, userId: existing.userId || userId, plan: license.plan, allowedIps: updated },
+        user: { licenseKey, userId: existing.userId || userId, plan: license.plan, allowedIps: updated, isRoot: !!existing.isRoot },
       };
     }
 
-    // 3. 신규 유저 도큐 생성
+    // 3. 신규 유저 도큐 생성 (isRoot는 기본 false — DB에서 직접 true로 승격)
     const newUser = {
       licenseKey,
       userId,
       allowedIps: [{ ip, alias: '', registeredAt: new Date() }],
       lastAccessAt: new Date(),
+      isRoot: false,
     };
     await getDb().collection(COL_USER).insertOne(newUser);
     return {
       success: true,
-      user: { licenseKey, userId, plan: license.plan, allowedIps: newUser.allowedIps },
+      user: { licenseKey, userId, plan: license.plan, allowedIps: newUser.allowedIps, isRoot: false },
       isNew: true,
     };
   } catch (e) {

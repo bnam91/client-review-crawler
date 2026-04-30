@@ -844,6 +844,7 @@ document.addEventListener('DOMContentLoaded', () => {
         licenseKey: 'DEV-LOCAL',
         plan: 0, // 모든 플랫폼 가능
         allowedIps: [],
+        isRoot: true, // dev 모드에서는 admin 모달도 접근 가능
       });
       return;
     }
@@ -900,10 +901,10 @@ document.addEventListener('DOMContentLoaded', () => {
     updateStartButtonState();
     hideLicenseOverlay();
     if (ipLimitModal) ipLimitModal.style.display = 'none';
-    // root면 관리자 버튼 표시
+    // root면 관리자 버튼 표시 — DB의 isRoot:true 플래그 기준 (이메일 식별자에 종속 없이 운영)
     const adminBtn = document.getElementById('admin-btn');
-    if (adminBtn) adminBtn.style.display = (user.userId === 'root') ? 'inline-flex' : 'none';
-    console.log(`[License] 인증 완료: ${user.userId} / plan:${user.plan}`);
+    if (adminBtn) adminBtn.style.display = user.isRoot ? 'inline-flex' : 'none';
+    console.log(`[License] 인증 완료: ${user.userId} / plan:${user.plan} / isRoot:${!!user.isRoot}`);
   }
 
   // 기기 관리 모달
