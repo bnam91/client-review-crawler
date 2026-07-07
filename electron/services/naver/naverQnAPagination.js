@@ -96,14 +96,17 @@ async function scrollQnAModalToBottom(page) {
  *
  * @param {object} page - Puppeteer page 객체
  * @param {number} targetCount - 목표 Q&A 개수 (기본 Infinity)
+ * @param {object} options - tuning.scrollWaitMs: 스크롤 간격 오버라이드 (속도 옵션)
  * @returns {Promise<number>} 최종 Q&A 개수
  */
-export async function loadMoreQnAs(page, targetCount = Infinity) {
+export async function loadMoreQnAs(page, targetCount = Infinity, options = {}) {
+  const { tuning = {} } = options;
   console.log(`[NaverQnAPagination] ♾️ Q&A 무한 스크롤 시작 (목표: ${targetCount === Infinity ? '전체' : targetCount}개)`);
 
   const MAX_ATTEMPTS = 200;
   const MAX_DURATION_MS = 600000;
-  const SCROLL_WAIT_MS = 1500;
+  // 기본 3000 (리뷰와 동일 — 네이버 요청속도 제한 회피, 2026-07-07 실측)
+  const SCROLL_WAIT_MS = tuning.scrollWaitMs ?? 3000;
   const STABLE_RECHECK_WAIT_MS = 2500;
   const STABLE_THRESHOLD = 3;
 

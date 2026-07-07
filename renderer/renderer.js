@@ -332,6 +332,20 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
+  // 크롤링 속도 토글 — 상호배타(항상 한쪽만 선택, 기본=안정)
+  const speedStableCheckbox = document.getElementById('speed-stable');
+  const speedFastCheckbox = document.getElementById('speed-fast');
+  if (speedStableCheckbox && speedFastCheckbox) {
+    speedStableCheckbox.addEventListener('click', () => {
+      speedStableCheckbox.classList.add('checked');
+      speedFastCheckbox.classList.remove('checked');
+    });
+    speedFastCheckbox.addEventListener('click', () => {
+      speedFastCheckbox.classList.add('checked');
+      speedStableCheckbox.classList.remove('checked');
+    });
+  }
+
   // 업데이트 체크 버튼
   const updateCheckBtn = document.getElementById('update-check-btn');
   if (updateCheckBtn && window.electronAPI && window.electronAPI.checkForUpdates) {
@@ -541,12 +555,18 @@ document.addEventListener('DOMContentLoaded', () => {
           const enableDiagnostic = enableDiagnosticCheckbox && enableDiagnosticCheckbox.classList.contains('checked');
           console.log(`[Renderer] 진단 로그 전송: ${enableDiagnostic}`);
 
+          // 크롤링 속도 — 안정(3초, 기본) vs 빠름(1.5초). '빠른 수집'이 체크된 경우만 false
+          const speedFastEl = document.getElementById('speed-fast');
+          const slowMode = !(speedFastEl && speedFastEl.classList.contains('checked'));
+          console.log(`[Renderer] 크롤링 속도: ${slowMode ? '안정(3초)' : '빠름(1.5초)'}`);
+          addLog(`[정보] 크롤링 속도: ${slowMode ? '안정 수집 (3초 간격)' : '빠른 수집 (1.5초 간격)'}`);
+
           console.log(`  - 저장 경로: ${savePath}`);
           addLog(`[경로] 저장 경로: ${savePath}`);
 
           addLog(`[브라우저] ${url}를 브라우저에서 엽니다...`);
           showStatusMessage('브라우저를 열고 있습니다...', 'info');
-          const result = await window.electronAPI.openUrlInBrowser(url, state.platform, state.collectionType, state.sort, state.pages, customPages, savePath, openFolder, excludeSecret, downloadImages, smallImage, enableDiagnostic);
+          const result = await window.electronAPI.openUrlInBrowser(url, state.platform, state.collectionType, state.sort, state.pages, customPages, savePath, openFolder, excludeSecret, downloadImages, smallImage, enableDiagnostic, slowMode);
           if (result.success) {
             addLog(`[브라우저] 브라우저에서 URL을 열었습니다.`);
             showStatusMessage('브라우저에서 URL을 열었습니다.', 'success');

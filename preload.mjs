@@ -43,10 +43,10 @@ try {
     },
     
     // 브라우저에서 URL 열기 (플랫폼/수집타입/정렬/페이지 정보 포함)
-    openUrlInBrowser: async (url, platform = 0, collectionType = 0, sort = 0, pages = 0, customPages = null, savePath = '', openFolder = false, excludeSecret = false, downloadImages = true, smallImage = false, enableDiagnostic = false) => {
-      console.log('[Preload] openUrlInBrowser called with URL:', url, 'Platform:', platform, 'CollectionType:', collectionType, 'Sort:', sort, 'Pages:', pages, 'CustomPages:', customPages, 'SavePath:', savePath, 'OpenFolder:', openFolder, 'ExcludeSecret:', excludeSecret, 'DownloadImages:', downloadImages, 'SmallImage:', smallImage, 'EnableDiagnostic:', enableDiagnostic);
+    openUrlInBrowser: async (url, platform = 0, collectionType = 0, sort = 0, pages = 0, customPages = null, savePath = '', openFolder = false, excludeSecret = false, downloadImages = true, smallImage = false, enableDiagnostic = false, slowMode = true) => {
+      console.log('[Preload] openUrlInBrowser called with URL:', url, 'Platform:', platform, 'CollectionType:', collectionType, 'Sort:', sort, 'Pages:', pages, 'CustomPages:', customPages, 'SavePath:', savePath, 'OpenFolder:', openFolder, 'ExcludeSecret:', excludeSecret, 'DownloadImages:', downloadImages, 'SmallImage:', smallImage, 'EnableDiagnostic:', enableDiagnostic, 'SlowMode:', slowMode);
       try {
-        const result = await ipcRenderer.invoke('open-url-in-browser', url, platform, collectionType, sort, pages, customPages, savePath, openFolder, excludeSecret, downloadImages, smallImage, enableDiagnostic);
+        const result = await ipcRenderer.invoke('open-url-in-browser', url, platform, collectionType, sort, pages, customPages, savePath, openFolder, excludeSecret, downloadImages, smallImage, enableDiagnostic, slowMode);
         console.log('[Preload] openUrlInBrowser result:', result);
         return result;
       } catch (error) {

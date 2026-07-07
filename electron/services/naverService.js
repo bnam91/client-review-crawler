@@ -49,7 +49,10 @@ function getMaxPages(pages, customPages = null) {
  * @param {boolean} excludeSecret - 비밀글 제외 여부 (Q&A 수집일 때만 사용)
  * @param {object} webContents - Electron webContents 객체 (로그 전송용)
  */
-export async function handleNaver(browser, page, input, isUrl, collectionType = 0, sort = 0, pages = 0, customPages = null, savePath = '', excludeSecret = false, webContents = null, downloadImages = true, smallImage = false, enableDiagnostic = false) {
+export async function handleNaver(browser, page, input, isUrl, collectionType = 0, sort = 0, pages = 0, customPages = null, savePath = '', excludeSecret = false, webContents = null, downloadImages = true, smallImage = false, enableDiagnostic = false, slowMode = true) {
+
+  // 크롤링 속도 (2026-07-07 라이브 실측 근거) — 안정(3초)=네이버 속도제한 미발동·전량 수집 / 빠름(1.5초)=대형 상품 부분수집 위험
+  const scrollWaitMs = slowMode ? 3000 : 1500;
 
   // 진단 객체 — 사용자가 옵트인 시 무한 스크롤 동작 정보 수집해서 크롤링 종료 후 MongoDB 업로드
   const diagnostic = enableDiagnostic ? {
@@ -201,7 +204,7 @@ export async function handleNaver(browser, page, input, isUrl, collectionType = 
 
         // 무한 스크롤로 모달 내 Q&A 로드
         sendLog(`[진행] 모달 무한 스크롤로 Q&A 로딩 중...`, 'info', true);
-        const finalCount = await loadMoreQnAs(newPage, targetCount);
+        const finalCount = await loadMoreQnAs(newPage, targetCount, { tuning: { scrollWaitMs } });
         console.log(`[NaverService] 📊 모달 내 최종 Q&A 개수: ${finalCount}`);
         sendLog(`[진행] 모달 내 ${finalCount}개 Q&A 로드 완료. 추출 시작...`, 'info', true);
 
@@ -276,7 +279,7 @@ export async function handleNaver(browser, page, input, isUrl, collectionType = 
             : Math.min(prevCount + CHUNK_SIZE_REVIEWS, originalTargetCount);
 
           sendLog(`[진행] 청크 ${chunkNum} — 무한 스크롤 (목표 ${target}개)...`, 'info', true);
-          const reachedCount = await loadMoreReviews(newPage, target, { diagnostic, chunkNum, flags: scrollFlags, sendLog });
+          const reachedCount = await loadMoreReviews(newPage, target, { diagnostic, chunkNum, flags: scrollFlags, sendLog, tuning: { scrollWaitMs } });
           sendLog(`[진행] 청크 ${chunkNum} — ${reachedCount}개 로드됨, 추출 중...`, 'info', true);
 
           const all = await extractAllReviews(newPage, photoFolderPath, 1, { downloadImages, smallImage, sendLog });
@@ -457,7 +460,7 @@ export async function handleNaver(browser, page, input, isUrl, collectionType = 
 
         // 무한 스크롤로 모달 내 Q&A 로드
         sendLog(`[진행] 모달 무한 스크롤로 Q&A 로딩 중...`, 'info', true);
-        const finalCount = await loadMoreQnAs(productPage, targetCount);
+        const finalCount = await loadMoreQnAs(productPage, targetCount, { tuning: { scrollWaitMs } });
         console.log(`[NaverService] 📊 모달 내 최종 Q&A 개수: ${finalCount}`);
         sendLog(`[진행] 모달 내 ${finalCount}개 Q&A 로드 완료. 추출 시작...`, 'info', true);
 
@@ -532,7 +535,7 @@ export async function handleNaver(browser, page, input, isUrl, collectionType = 
             : Math.min(prevCount + CHUNK_SIZE_REVIEWS, originalTargetCount);
 
           sendLog(`[진행] 청크 ${chunkNum} — 무한 스크롤 (목표 ${target}개)...`, 'info', true);
-          const reachedCount = await loadMoreReviews(productPage, target, { diagnostic, chunkNum, flags: scrollFlags, sendLog });
+          const reachedCount = await loadMoreReviews(productPage, target, { diagnostic, chunkNum, flags: scrollFlags, sendLog, tuning: { scrollWaitMs } });
           sendLog(`[진행] 청크 ${chunkNum} — ${reachedCount}개 로드됨, 추출 중...`, 'info', true);
 
           const all = await extractAllReviews(productPage, photoFolderPath, 1, { downloadImages, smallImage, sendLog });
