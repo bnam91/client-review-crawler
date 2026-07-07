@@ -4,7 +4,7 @@ node_modules/
 .env
 dist/
 out/
-build/
+build/*
 *.app
 *.dmg
 *.exe
@@ -14,3 +14,4 @@ build/
 *.AppImage
 *.zip
 note.md
+!build/entitlements.mac.plist
