@@ -188,6 +188,8 @@ export async function handleNaver(browser, page, input, isUrl, collectionType = 
       let allReviews = [];
       let allQnAs = [];
       let finalSavePath = null; // 저장 경로 초기화
+      // 속도제한(429) 상태 공유 — loadMoreReviews가 기록, 완료 메시지/진단에서 부분수집 여부 판단
+      const scrollFlags = { rateLimitHits: 0, endedByRateLimit: false, resumedAfterRateLimit: 0 };
 
       // Q&A 수집일 때 Q&A 추출 (모달 무한 스크롤 단일 흐름)
       if (collectionType === 1) {
@@ -274,7 +276,7 @@ export async function handleNaver(browser, page, input, isUrl, collectionType = 
             : Math.min(prevCount + CHUNK_SIZE_REVIEWS, originalTargetCount);
 
           sendLog(`[진행] 청크 ${chunkNum} — 무한 스크롤 (목표 ${target}개)...`, 'info', true);
-          const reachedCount = await loadMoreReviews(newPage, target, { diagnostic, chunkNum });
+          const reachedCount = await loadMoreReviews(newPage, target, { diagnostic, chunkNum, flags: scrollFlags, sendLog });
           sendLog(`[진행] 청크 ${chunkNum} — ${reachedCount}개 로드됨, 추출 중...`, 'info', true);
 
           const all = await extractAllReviews(newPage, photoFolderPath, 1, { downloadImages, smallImage, sendLog });
@@ -313,6 +315,13 @@ export async function handleNaver(browser, page, input, isUrl, collectionType = 
         console.log(`[NaverService] ✅ 총 ${allReviews.length}개의 리뷰를 추출했습니다.`);
         sendLog(`[완료] 총 ${allReviews.length}개의 리뷰를 추출했습니다.`, 'success');
 
+        if (scrollFlags.endedByRateLimit) {
+          sendLog(`[경고] ⚠️ 부분수집입니다 — 네이버가 이 지점 이후의 리뷰 조회를 제한(429)하여 ${allReviews.length}개까지만 수집되었습니다.`, 'warning');
+          sendLog(`[안내] 나머지 리뷰가 필요하면: ① 정렬을 바꿔(최신순↔랭킹순↔평점낮은순) 다시 수집하면 다른 구간의 리뷰를 추가 확보할 수 있습니다 ② 시간을 두고 재시도하면 제한 지점이 달라질 수 있습니다.`, 'info');
+        } else if (scrollFlags.resumedAfterRateLimit > 0) {
+          sendLog(`[정보] 수집 중 네이버 속도제한(429)을 ${scrollFlags.resumedAfterRateLimit}회 만났고, 대기 후 끝까지 이어받았습니다.`, 'info');
+        }
+
         // JSON 전체 저장 (Excel은 이미 청크로 저장됨)
         let jsonFileCount = 0;
         if (allReviews.length > 0) {
@@ -348,10 +357,21 @@ export async function handleNaver(browser, page, input, isUrl, collectionType = 
       } else if (collectionType === 1) {
         finalCountMessage = `총 ${allQnAs.length}개 Q&A`;
       }
-      sendLog(`[완료] 크롤링이 완료되었습니다. (${finalCountMessage})`, 'success');
+      if (scrollFlags.endedByRateLimit) {
+        sendLog(`[완료] 크롤링이 종료되었습니다. (${finalCountMessage} — ⚠️ 네이버 속도제한으로 인한 부분수집)`, 'warning');
+      } else {
+        sendLog(`[완료] 크롤링이 완료되었습니다. (${finalCountMessage})`, 'success');
+      }
       await uploadDiagnosticIfEnabled(
         { input, isUrl, collectionType, sort, pages, customPages },
-        { success: true, totalReviews: allReviews.length, totalQnAs: allQnAs.length }
+        {
+          success: true,
+          totalReviews: allReviews.length,
+          totalQnAs: allQnAs.length,
+          partial: scrollFlags.endedByRateLimit,
+          rateLimitHits: scrollFlags.rateLimitHits,
+          rateLimitResumes: scrollFlags.resumedAfterRateLimit,
+        }
       );
       return {
         success: true,
@@ -362,6 +382,7 @@ export async function handleNaver(browser, page, input, isUrl, collectionType = 
         collectionType: collectionType,
         reviews: allReviews,
         savePath: finalSavePath,
+        partial: scrollFlags.endedByRateLimit,
       };
     }
     
@@ -423,6 +444,8 @@ export async function handleNaver(browser, page, input, isUrl, collectionType = 
       let allReviews = [];
       let allQnAs = []; // Q&A 수집용 (스코프 문제 해결)
       let finalSavePath = null; // 저장 경로 초기화
+      // 속도제한(429) 상태 공유 — loadMoreReviews가 기록, 완료 메시지/진단에서 부분수집 여부 판단
+      const scrollFlags = { rateLimitHits: 0, endedByRateLimit: false, resumedAfterRateLimit: 0 };
       
       // Q&A 수집일 때 Q&A 추출 (모달 무한 스크롤 단일 흐름)
       if (collectionType === 1) {
@@ -509,7 +532,7 @@ export async function handleNaver(browser, page, input, isUrl, collectionType = 
             : Math.min(prevCount + CHUNK_SIZE_REVIEWS, originalTargetCount);
 
           sendLog(`[진행] 청크 ${chunkNum} — 무한 스크롤 (목표 ${target}개)...`, 'info', true);
-          const reachedCount = await loadMoreReviews(productPage, target, { diagnostic, chunkNum });
+          const reachedCount = await loadMoreReviews(productPage, target, { diagnostic, chunkNum, flags: scrollFlags, sendLog });
           sendLog(`[진행] 청크 ${chunkNum} — ${reachedCount}개 로드됨, 추출 중...`, 'info', true);
 
           const all = await extractAllReviews(productPage, photoFolderPath, 1, { downloadImages, smallImage, sendLog });
@@ -548,6 +571,13 @@ export async function handleNaver(browser, page, input, isUrl, collectionType = 
         console.log(`[NaverService] ✅ 총 ${allReviews.length}개의 리뷰를 추출했습니다.`);
         sendLog(`[완료] 총 ${allReviews.length}개의 리뷰를 추출했습니다.`, 'success');
 
+        if (scrollFlags.endedByRateLimit) {
+          sendLog(`[경고] ⚠️ 부분수집입니다 — 네이버가 이 지점 이후의 리뷰 조회를 제한(429)하여 ${allReviews.length}개까지만 수집되었습니다.`, 'warning');
+          sendLog(`[안내] 나머지 리뷰가 필요하면: ① 정렬을 바꿔(최신순↔랭킹순↔평점낮은순) 다시 수집하면 다른 구간의 리뷰를 추가 확보할 수 있습니다 ② 시간을 두고 재시도하면 제한 지점이 달라질 수 있습니다.`, 'info');
+        } else if (scrollFlags.resumedAfterRateLimit > 0) {
+          sendLog(`[정보] 수집 중 네이버 속도제한(429)을 ${scrollFlags.resumedAfterRateLimit}회 만났고, 대기 후 끝까지 이어받았습니다.`, 'info');
+        }
+
         // JSON 전체 저장 (Excel은 이미 청크로 저장됨)
         let jsonFileCount = 0;
         if (allReviews.length > 0) {
@@ -583,10 +613,21 @@ export async function handleNaver(browser, page, input, isUrl, collectionType = 
       } else if (collectionType === 1) {
         finalCountMessage = `총 ${allQnAs.length}개 Q&A`;
       }
-      sendLog(`[완료] 크롤링이 완료되었습니다. (${finalCountMessage})`, 'success');
+      if (scrollFlags.endedByRateLimit) {
+        sendLog(`[완료] 크롤링이 종료되었습니다. (${finalCountMessage} — ⚠️ 네이버 속도제한으로 인한 부분수집)`, 'warning');
+      } else {
+        sendLog(`[완료] 크롤링이 완료되었습니다. (${finalCountMessage})`, 'success');
+      }
       await uploadDiagnosticIfEnabled(
         { input, isUrl, collectionType, sort, pages, customPages },
-        { success: true, totalReviews: allReviews.length, totalQnAs: allQnAs.length }
+        {
+          success: true,
+          totalReviews: allReviews.length,
+          totalQnAs: allQnAs.length,
+          partial: scrollFlags.endedByRateLimit,
+          rateLimitHits: scrollFlags.rateLimitHits,
+          rateLimitResumes: scrollFlags.resumedAfterRateLimit,
+        }
       );
       return {
         success: true,
@@ -599,6 +640,7 @@ export async function handleNaver(browser, page, input, isUrl, collectionType = 
         collectionType: collectionType,
         reviews: allReviews,
         savePath: finalSavePath,
+        partial: scrollFlags.endedByRateLimit,
       };
     } catch (error) {
       console.error('[NaverService] 상품 페이지 대기 중 오류:', error);
