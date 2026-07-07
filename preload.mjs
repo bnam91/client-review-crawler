@@ -8,7 +8,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 // package.json에서 버전 정보 읽기
-let appVersion = 'v1.6.8';
+let appVersion = 'v1.6.9';
 try {
   const packageJson = JSON.parse(readFileSync(join(__dirname, 'package.json'), 'utf-8'));
   appVersion = `v${packageJson.version}`;
