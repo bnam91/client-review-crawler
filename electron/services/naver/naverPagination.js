@@ -60,7 +60,10 @@ export async function loadMoreReviews(page, targetCount = Infinity, options = {}
 
   const MAX_ATTEMPTS = 200;            // 30→200 (대량 리뷰 대응)
   const MAX_DURATION_MS = 600000;      // 30s→600s (10분, 대량 리뷰 대응)
-  const SCROLL_WAIT_MS = tuning.scrollWaitMs ?? 1500;         // 800→1500 (느린 회선 안전)
+  // 1500→3000 (2026-07-07 라이브 실측): 네이버 429는 요청속도 기반 제한 —
+  // 1.5s 간격은 120~198페이지에서 차단(중단점 환경별 변동), 3s 간격은 4,630개 전량 무차단 완주.
+  // 소형 상품은 스크롤 횟수가 적어 체감 손해 미미, 대형 상품은 이 값이어야 전량 수집됨.
+  const SCROLL_WAIT_MS = tuning.scrollWaitMs ?? 3000;
   const STABLE_RECHECK_WAIT_MS = tuning.stableRecheckWaitMs ?? 2500; // 동결 의심 시 추가 한 번 대기
   const STABLE_THRESHOLD = 3;          // 2→3회 연속 동결 필요
 
