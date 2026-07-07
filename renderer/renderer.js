@@ -332,17 +332,11 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // 크롤링 속도 토글 — 상호배타(항상 한쪽만 선택, 기본=안정)
+  // 안정 수집 토글 — 체크=3초 간격(속도제한 회피), 해제(기본)=기존 1.5초
   const speedStableCheckbox = document.getElementById('speed-stable');
-  const speedFastCheckbox = document.getElementById('speed-fast');
-  if (speedStableCheckbox && speedFastCheckbox) {
+  if (speedStableCheckbox) {
     speedStableCheckbox.addEventListener('click', () => {
-      speedStableCheckbox.classList.add('checked');
-      speedFastCheckbox.classList.remove('checked');
-    });
-    speedFastCheckbox.addEventListener('click', () => {
-      speedFastCheckbox.classList.add('checked');
-      speedStableCheckbox.classList.remove('checked');
+      speedStableCheckbox.classList.toggle('checked');
     });
   }
 
@@ -555,11 +549,11 @@ document.addEventListener('DOMContentLoaded', () => {
           const enableDiagnostic = enableDiagnosticCheckbox && enableDiagnosticCheckbox.classList.contains('checked');
           console.log(`[Renderer] 진단 로그 전송: ${enableDiagnostic}`);
 
-          // 크롤링 속도 — 안정(3초, 기본) vs 빠름(1.5초). '빠른 수집'이 체크된 경우만 false
-          const speedFastEl = document.getElementById('speed-fast');
-          const slowMode = !(speedFastEl && speedFastEl.classList.contains('checked'));
-          console.log(`[Renderer] 크롤링 속도: ${slowMode ? '안정(3초)' : '빠름(1.5초)'}`);
-          addLog(`[정보] 크롤링 속도: ${slowMode ? '안정 수집 (3초 간격)' : '빠른 수집 (1.5초 간격)'}`);
+          // 안정 수집 체크 여부 — 체크=3초 간격(전량 수집), 해제(기본)=1.5초(기존 속도)
+          const speedStableEl = document.getElementById('speed-stable');
+          const slowMode = !!(speedStableEl && speedStableEl.classList.contains('checked'));
+          console.log(`[Renderer] 안정 수집: ${slowMode} (${slowMode ? '3초' : '1.5초'} 간격)`);
+          addLog(`[정보] 수집 속도: ${slowMode ? '안정 수집 (3초 간격)' : '기본 (1.5초 간격)'}`);
 
           console.log(`  - 저장 경로: ${savePath}`);
           addLog(`[경로] 저장 경로: ${savePath}`);

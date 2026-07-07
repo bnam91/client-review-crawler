@@ -319,8 +319,8 @@ export async function handleNaver(browser, page, input, isUrl, collectionType = 
         sendLog(`[완료] 총 ${allReviews.length}개의 리뷰를 추출했습니다.`, 'success');
 
         if (scrollFlags.endedByRateLimit) {
-          sendLog(`[경고] ⚠️ 부분수집입니다 — 네이버가 이 지점 이후의 리뷰 조회를 제한(429)하여 ${allReviews.length}개까지만 수집되었습니다.`, 'warning');
-          sendLog(`[안내] 나머지 리뷰가 필요하면: ① 정렬을 바꿔(최신순↔랭킹순↔평점낮은순) 다시 수집하면 다른 구간의 리뷰를 추가 확보할 수 있습니다 ② 시간을 두고 재시도하면 제한 지점이 달라질 수 있습니다.`, 'info');
+          sendLog(`[경고] ⚠️ 부분수집입니다 — 네이버가 수집 속도 제한(429)을 걸어 ${allReviews.length}개까지만 수집되었습니다.`, 'warning');
+          sendLog(`[안내] '안정 수집' 체크박스를 체크한 뒤 다시 실행하면 속도제한 없이 전량 수집됩니다.`, 'info');
         } else if (scrollFlags.resumedAfterRateLimit > 0) {
           sendLog(`[정보] 수집 중 네이버 속도제한(429)을 ${scrollFlags.resumedAfterRateLimit}회 만났고, 대기 후 끝까지 이어받았습니다.`, 'info');
         }
@@ -575,8 +575,8 @@ export async function handleNaver(browser, page, input, isUrl, collectionType = 
         sendLog(`[완료] 총 ${allReviews.length}개의 리뷰를 추출했습니다.`, 'success');
 
         if (scrollFlags.endedByRateLimit) {
-          sendLog(`[경고] ⚠️ 부분수집입니다 — 네이버가 이 지점 이후의 리뷰 조회를 제한(429)하여 ${allReviews.length}개까지만 수집되었습니다.`, 'warning');
-          sendLog(`[안내] 나머지 리뷰가 필요하면: ① 정렬을 바꿔(최신순↔랭킹순↔평점낮은순) 다시 수집하면 다른 구간의 리뷰를 추가 확보할 수 있습니다 ② 시간을 두고 재시도하면 제한 지점이 달라질 수 있습니다.`, 'info');
+          sendLog(`[경고] ⚠️ 부분수집입니다 — 네이버가 수집 속도 제한(429)을 걸어 ${allReviews.length}개까지만 수집되었습니다.`, 'warning');
+          sendLog(`[안내] '안정 수집' 체크박스를 체크한 뒤 다시 실행하면 속도제한 없이 전량 수집됩니다.`, 'info');
         } else if (scrollFlags.resumedAfterRateLimit > 0) {
           sendLog(`[정보] 수집 중 네이버 속도제한(429)을 ${scrollFlags.resumedAfterRateLimit}회 만났고, 대기 후 끝까지 이어받았습니다.`, 'info');
         }
