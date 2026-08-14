@@ -565,7 +565,11 @@ document.addEventListener('DOMContentLoaded', () => {
             addLog(`[브라우저] 브라우저에서 URL을 열었습니다.`);
             // 완료 문구는 «결과 기반»으로 여기서 1회만 낸다.
             // (예전에는 아래 setTimeout이 결과와 무관하게 초록 '완료'를 덮어써서 부분수집 경고가 무력화됐다)
-            if (result.partial) {
+            if (result.unverified) {
+              // 총 리뷰 수를 못 읽은 채 상한/동결로 끝난 경우 — 성공으로 보이게 하면 안 된다(무증상 종료).
+              addLog('[완료] ⚠️ 수집량을 «검증할 수 없는» 상태로 종료되었습니다 — 상품 페이지의 리뷰 수와 직접 비교해 주세요.');
+              showStatusMessage('⚠️ 수집량 검증 불가 — 전량인지 확인할 수 없습니다. 로그의 경고를 확인해 주세요.', 'warning');
+            } else if (result.partial) {
               addLog('[완료] ⚠️ 부분수집으로 종료되었습니다 — 위 경고를 확인하고 다시 실행해 주세요.');
               showStatusMessage('⚠️ 부분수집으로 종료되었습니다. 로그의 경고를 확인해 주세요.', 'warning');
             } else {
