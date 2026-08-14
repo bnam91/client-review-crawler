@@ -92,15 +92,23 @@ async function scrollQnAModalToBottom(page) {
  *   1) targetCount 도달
  *   2) scrollHeight + Q&A 개수 모두 STABLE_THRESHOLD(3)회 연속 동일
  *      → 추가 대기로도 변동 없으면 종료
+ *      → 단, 동결 직전에 HTTP 429가 관측됐으면 "Q&A 끝"이 아니라 «차단»으로 보고 경고한다
  *   3) MAX_ATTEMPTS(200)회 시도 또는 MAX_DURATION_MS(600s) 초과
+ *
+ * ★리뷰 쪽(naverPagination.js)에서 검증된 «무증상 종료 방지» 장치를 이식했다:
+ *   ① terminationReason을 «항상» flags에 기록 ② 차단/구조파손 시 sendLog로 사용자 통지 ③ 429 감지.
+ *   (※ 총 Q&A 수 대조는 미구현 — Q&A 총개수 텍스트 확인이 별도 작업이라 이번 범위 밖)
  *
  * @param {object} page - Puppeteer page 객체
  * @param {number} targetCount - 목표 Q&A 개수 (기본 Infinity)
- * @param {object} options - tuning.scrollWaitMs: 스크롤 간격 오버라이드 (속도 옵션)
+ * @param {object} options
+ *   - flags: 호출자 공유 상태 객체 — terminationReason(항상)/rateLimitHits/endedByRateLimit/endedByStall/endedByNoContainer 기록
+ *   - sendLog: UI 로그 전송 함수 (차단·구조파손을 사용자에게 표시)
+ *   - tuning.scrollWaitMs: 스크롤 간격 오버라이드 (속도 옵션)
  * @returns {Promise<number>} 최종 Q&A 개수
  */
 export async function loadMoreQnAs(page, targetCount = Infinity, options = {}) {
-  const { tuning = {} } = options;
+  const { flags = null, sendLog = null, tuning = {} } = options;
   console.log(`[NaverQnAPagination] ♾️ Q&A 무한 스크롤 시작 (목표: ${targetCount === Infinity ? '전체' : targetCount}개)`);
 
   const MAX_ATTEMPTS = 200;
@@ -110,83 +118,138 @@ export async function loadMoreQnAs(page, targetCount = Infinity, options = {}) {
   const STABLE_RECHECK_WAIT_MS = 2500;
   const STABLE_THRESHOLD = 3;
 
+  // ③ 429 속도제한 감지 — 스크롤 중 네이버 응답에 429가 섞이면 기록해 둔다.
+  //    동결이 "진짜 끝"인지 "차단"인지 이 기록으로 판별한다(리뷰 쪽과 동일 원리).
+  const rateLimit = { last429At: 0, hits: 0, lastUrl: '' };
+  const onResponse = (res) => {
+    try {
+      if (res.status() === 429 && res.url().includes('naver')) {
+        rateLimit.last429At = Date.now();
+        rateLimit.hits++;
+        rateLimit.lastUrl = res.url();
+        console.log(`[NaverQnAPagination]   🚦 HTTP 429 감지 (누적 ${rateLimit.hits}회): ${res.url().slice(0, 120)}`);
+      }
+    } catch {}
+  };
+  page.on('response', onResponse);
+
+  // ① 종료 사유는 «항상» 기록한다 — 호출부가 무증상 종료를 판별할 수 있어야 한다.
+  let terminationReason = null;
+  const setTermination = (reason) => {
+    terminationReason = reason;
+    if (flags) flags.terminationReason = reason;
+  };
+
   const startTime = Date.now();
   let lastScrollHeight = -1;
   let lastQnACount = -1;
   let stableScrollCount = 0;
   let stableCountCount = 0;
+  let lastProgressAt = Date.now(); // 마지막으로 Q&A 개수가 늘어난 시각 (429 인과 판별용)
 
   let currentCount = await getQnACount(page);
   console.log(`[NaverQnAPagination]   📊 시작 Q&A 개수: ${currentCount}`);
 
-  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
-    if (Date.now() - startTime > MAX_DURATION_MS) {
-      console.log(`[NaverQnAPagination]   ⏱️ 최대 대기 시간(${MAX_DURATION_MS}ms) 초과로 종료`);
-      break;
-    }
-
-    if (currentCount >= targetCount) {
-      console.log(`[NaverQnAPagination]   🎯 목표 Q&A 개수(${targetCount}) 도달`);
-      break;
-    }
-
-    // 스크롤 + scrollHeight 반환
-    const scrollHeight = await scrollQnAModalToBottom(page);
-
-    if (scrollHeight === -1) {
-      console.log(`[NaverQnAPagination]   ⚠️ scroll container/모달을 찾을 수 없습니다.`);
-      break;
-    }
-
-    // 새 Q&A 로드 대기
-    await new Promise(resolve => setTimeout(resolve, SCROLL_WAIT_MS));
-
-    const newCount = await getQnACount(page);
-
-    if (scrollHeight === lastScrollHeight) {
-      stableScrollCount++;
-    } else {
-      stableScrollCount = 0;
-      lastScrollHeight = scrollHeight;
-    }
-
-    if (newCount === lastQnACount) {
-      stableCountCount++;
-    } else {
-      stableCountCount = 0;
-      lastQnACount = newCount;
-    }
-
-    if (newCount !== currentCount) {
-      console.log(`[NaverQnAPagination]   📈 시도 ${attempt + 1}: ${currentCount} → ${newCount} (scrollHeight=${scrollHeight})`);
-    }
-
-    currentCount = newCount;
-
-    if (stableScrollCount >= STABLE_THRESHOLD && stableCountCount >= STABLE_THRESHOLD) {
-      console.log(`[NaverQnAPagination]   🤔 ${STABLE_THRESHOLD}회 연속 동결 감지 — ${STABLE_RECHECK_WAIT_MS}ms 추가 대기 후 재확인`);
-      await new Promise(resolve => setTimeout(resolve, STABLE_RECHECK_WAIT_MS));
-
-      // 추가 대기 중에도 스크롤 한 번 더 시도하여 lazy load 트리거
-      const recheckHeight = await scrollQnAModalToBottom(page);
-      const recheckCount = await getQnACount(page);
-
-      if (recheckHeight !== lastScrollHeight || recheckCount !== currentCount) {
-        console.log(`[NaverQnAPagination]   🔄 추가 대기 후 변동 감지 (height: ${lastScrollHeight}→${recheckHeight}, count: ${currentCount}→${recheckCount}) — 종료 보류, 스크롤 계속`);
-        stableScrollCount = 0;
-        stableCountCount = 0;
-        if (recheckHeight !== -1) lastScrollHeight = recheckHeight;
-        currentCount = recheckCount;
-        lastQnACount = recheckCount;
-        continue;
+  try {
+    for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+      if (Date.now() - startTime > MAX_DURATION_MS) {
+        console.log(`[NaverQnAPagination]   ⏱️ 최대 대기 시간(${MAX_DURATION_MS}ms) 초과로 종료`);
+        setTermination('max_duration');
+        // ② 시간 초과는 '끝까지 봤다'는 뜻이 아니다 — 조용히 끝내지 않는다.
+        if (sendLog) sendLog(`[경고] ⚠️ Q&A 로딩이 제한 시간(10분)을 넘겨 중단했습니다 — ${currentCount}개까지만 수집됩니다 (부분수집)`, 'warning');
+        break;
       }
 
-      console.log(`[NaverQnAPagination]   🛑 더 이상 Q&A가 로드되지 않습니다 (시도 ${attempt + 1}회, 추가 대기로도 변동 없음)`);
-      break;
+      if (currentCount >= targetCount) {
+        console.log(`[NaverQnAPagination]   🎯 목표 Q&A 개수(${targetCount}) 도달`);
+        setTermination('target_reached');
+        break;
+      }
+
+      // 스크롤 + scrollHeight 반환
+      const scrollHeight = await scrollQnAModalToBottom(page);
+
+      if (scrollHeight === -1) {
+        // ② 구조 파손 — '완료'로 위장하지 말고 명시적 오류로 알린다.
+        console.log(`[NaverQnAPagination]   ⚠️ scroll container/모달을 찾을 수 없습니다.`);
+        if (sendLog) sendLog(`[오류] 네이버 화면 구조가 바뀌어 Q&A 목록을 스크롤할 수 없습니다 — 앱 업데이트가 필요합니다`, 'error');
+        if (flags) flags.endedByNoContainer = true;
+        setTermination('no_scroll_container');
+        break;
+      }
+
+      // 새 Q&A 로드 대기
+      await new Promise(resolve => setTimeout(resolve, SCROLL_WAIT_MS));
+
+      const newCount = await getQnACount(page);
+
+      if (scrollHeight === lastScrollHeight) {
+        stableScrollCount++;
+      } else {
+        stableScrollCount = 0;
+        lastScrollHeight = scrollHeight;
+      }
+
+      if (newCount === lastQnACount) {
+        stableCountCount++;
+      } else {
+        stableCountCount = 0;
+        lastQnACount = newCount;
+      }
+
+      if (newCount !== currentCount) {
+        console.log(`[NaverQnAPagination]   📈 시도 ${attempt + 1}: ${currentCount} → ${newCount} (scrollHeight=${scrollHeight})`);
+        lastProgressAt = Date.now();
+      }
+
+      currentCount = newCount;
+
+      if (stableScrollCount >= STABLE_THRESHOLD && stableCountCount >= STABLE_THRESHOLD) {
+        console.log(`[NaverQnAPagination]   🤔 ${STABLE_THRESHOLD}회 연속 동결 감지 — ${STABLE_RECHECK_WAIT_MS}ms 추가 대기 후 재확인`);
+        await new Promise(resolve => setTimeout(resolve, STABLE_RECHECK_WAIT_MS));
+
+        // 추가 대기 중에도 스크롤 한 번 더 시도하여 lazy load 트리거
+        const recheckHeight = await scrollQnAModalToBottom(page);
+        const recheckCount = await getQnACount(page);
+
+        if (recheckHeight !== lastScrollHeight || recheckCount !== currentCount) {
+          console.log(`[NaverQnAPagination]   🔄 추가 대기 후 변동 감지 (height: ${lastScrollHeight}→${recheckHeight}, count: ${currentCount}→${recheckCount}) — 종료 보류, 스크롤 계속`);
+          stableScrollCount = 0;
+          stableCountCount = 0;
+          if (recheckHeight !== -1) lastScrollHeight = recheckHeight;
+          if (recheckCount !== currentCount) lastProgressAt = Date.now();
+          currentCount = recheckCount;
+          lastQnACount = recheckCount;
+          continue;
+        }
+
+        // 동결 확정 — 원인 판별: 마지막 진행 이후 429가 관측됐으면 "Q&A 끝"이 아니라 "차단"이다.
+        if (rateLimit.last429At >= lastProgressAt && rateLimit.hits > 0) {
+          console.log(`[NaverQnAPagination]   🛑 동결 원인 = 속도제한(429 누적 ${rateLimit.hits}회) — 부분수집 ${currentCount}개로 중단`);
+          if (sendLog) sendLog(`[경고] ⚠️ 네이버 속도제한(429)으로 Q&A 수집이 중단되었습니다 — ${currentCount}개까지만 수집됨 (부분수집). '안정 수집'을 체크하고 다시 실행해 주세요.`, 'warning');
+          if (flags) flags.endedByRateLimit = true;
+          setTermination('rate_limit_stall');
+          break;
+        }
+
+        console.log(`[NaverQnAPagination]   🛑 더 이상 Q&A가 로드되지 않습니다 (시도 ${attempt + 1}회, 추가 대기로도 변동 없음)`);
+        if (flags) flags.endedByStall = true;
+        setTermination('stable_threshold');
+        break;
+      }
     }
+  } finally {
+    page.off('response', onResponse);
+    if (flags) flags.rateLimitHits = (flags.rateLimitHits || 0) + rateLimit.hits;
   }
 
-  console.log(`[NaverQnAPagination] ✅ Q&A 무한 스크롤 완료. 최종 Q&A 개수: ${currentCount}`);
+  // for 소진(MAX_ATTEMPTS) 경로도 사유를 남긴다 — 사유 없는 종료를 만들지 않는다.
+  if (!terminationReason) {
+    setTermination('attempts_exhausted');
+    if (sendLog) sendLog(`[경고] ⚠️ Q&A 스크롤 시도 횟수(${MAX_ATTEMPTS}회)를 모두 써서 중단했습니다 — ${currentCount}개까지만 수집됩니다 (부분수집)`, 'warning');
+  }
+
+  console.log(`[NaverQnAPagination] ✅ Q&A 무한 스크롤 완료. 최종 Q&A 개수: ${currentCount} (종료 사유: ${terminationReason})`);
   return currentCount;
 }
 
