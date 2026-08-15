@@ -14,4 +14,9 @@ build/*
 *.AppImage
 *.zip
 note.md
+# 재현/조사 산출물 — 고객 URL·리뷰 원문이 들어갈 수 있어 PUBLIC 레포에 절대 커밋 금지
+# (jobs/ 전체가 아니라 임시 산출물 폴더만 막는다 — 나중에 jobs/ 아래 정식 파일이 생겨도 무시되지 않게)
+jobs/tmp/
+# 외부 도구 서브트리(126MB) — 이 앱의 소스가 아니고, git add -A 한 번에 PUBLIC 레포로 통째로 들어간다
+claude-talk-to-figma-mcp/
 !build/entitlements.mac.plist

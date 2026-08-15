@@ -25,6 +25,30 @@ function toSmallImageUrl(url) {
 }
 
 /**
+ * 사진 다운로드 집계 누적기 — 수집 «실행 전체»의 성공/실패를 한 곳에 모은다.
+ * 리뷰 수집의 partial 판정과는 «별개»다 (리뷰는 다 받고 사진만 실패하는 경우가 실제로 있다).
+ * @returns {{total:number, ok:number, fail:number, reasons:object}}
+ */
+export function createPhotoStats() {
+  return { total: 0, ok: 0, fail: 0, reasons: {} };
+}
+
+/** 실패 1건을 사유별로 적립 (사유 문자열은 길이 제한 — 로그/IPC 방어) */
+export function countPhotoFailure(stats, reason) {
+  stats.fail++;
+  const key = String(reason || '사유 미상').slice(0, 80);
+  stats.reasons[key] = (stats.reasons[key] || 0) + 1;
+}
+
+/** 실패 사유 상위 n건 */
+export function topPhotoFailReasons(stats, n = 3) {
+  return Object.entries(stats.reasons || {})
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, n)
+    .map(([reason, count]) => ({ reason, count }));
+}
+
+/**
  * 동시성 제한 worker pool — items 배열의 각 원소를 mapper로 처리, 결과는 같은 인덱스로 보존
  * @param {Array} items
  * @param {number} concurrency
@@ -58,7 +82,7 @@ async function mapWithConcurrency(items, concurrency, mapper) {
  * @returns {Promise<Array<object>>} 리뷰 데이터 배열
  */
 export async function extractAllReviews(page, photoFolderPath, currentPage = 1, options = {}) {
-  const { downloadImages = true, smallImage = false, sendLog = null } = options;
+  // 사진 다운로드/조립 옵션은 그대로 finalizeReviews로 넘긴다 (아래 ② 참고)
   console.log('[NaverReviewExtractor] 모든 리뷰 추출 시작 (page.evaluate 일회 직렬화)...');
 
   // ① page.evaluate 한 번 호출로 전체 리뷰 메타데이터 직렬화
@@ -139,7 +163,36 @@ export async function extractAllReviews(page, photoFolderPath, currentPage = 1, 
 
   console.log(`[NaverReviewExtractor] ${rawReviews.length}개의 리뷰 메타데이터를 직렬화 추출했습니다.`);
 
-  if (rawReviews.length === 0) {
+  return finalizeReviews(rawReviews, photoFolderPath, currentPage, options);
+}
+
+/**
+ * 원시 리뷰(메타) 배열 → 사진 다운로드 + 최종 저장 객체 조립.
+ *
+ * ★DOM 추출 경로(extractAllReviews)와 API 페이징 경로(naverReviewApi)가 «공유»한다.
+ *   두 경로가 같은 함수를 쓰므로 엑셀/JSON에 들어가는 최종 형태는 항상 동일하다.
+ *
+ * 원시 형태: { reviewScore, reviewerName, reviewDate, content, reviewType, photoUrls[] }
+ *
+ * @param {Array<object>} rawReviews - 원시 리뷰 배열
+ * @param {string} photoFolderPath - 이미지 저장 폴더 경로
+ * @param {number} currentPage - 이미지 파일명에 쓰는 페이지 번호 (무한 스크롤/API 모두 보통 1)
+ * @param {object} options
+ * @param {boolean} options.downloadImages - 이미지 다운로드 여부 (기본 true)
+ * @param {boolean} options.smallImage - 480px 작게 받기 (기본 false)
+ * @param {Function} options.sendLog - sendLog(message, className, updateLast)
+ * @param {number} options.indexOffset - 리뷰 «전역» 시작 인덱스. 나눠서 조립할 때 Page_Review 번호와
+ *                                       이미지 파일명이 겹치지 않도록 한다 (기본 0 = 기존 동작 그대로).
+ * @param {object} options.photoStats - createPhotoStats()로 만든 누적기. 넘기면 사진 성공/실패가 여기에 쌓여
+ *                                      호출자(naverService)가 완료 문구에 쓸 수 있다.
+ * @returns {Promise<Array<object>>} 최종 리뷰 객체 배열 (★사진 실패는 이 배열을 실패로 만들지 않는다)
+ */
+export async function finalizeReviews(rawReviews, photoFolderPath, currentPage = 1, options = {}) {
+  const { downloadImages = true, smallImage = false, sendLog = null, indexOffset = 0 } = options;
+  // ★사진 집계 — 호출자가 넘긴 누적기가 있으면 «실행 전체»로 합산된다(청크로 나눠 불려도 총계가 맞는다).
+  const stats = options.photoStats || createPhotoStats();
+
+  if (!rawReviews || rawReviews.length === 0) {
     console.log('[NaverReviewExtractor] ❌ 추출된 리뷰가 없습니다.');
     return [];
   }
@@ -169,31 +222,49 @@ export async function extractAllReviews(page, photoFolderPath, currentPage = 1, 
       }
     }
 
-    let completed = 0;
     const total = tasks.length;
+    stats.total += total;
+    // ★성공/실패를 «따로» 센다.
+    //   종전에는 finally에서 completed 하나만 올려 500장이 실패해도 "9975/9975"로 끝까지 찬 것처럼 보였다
+    //   (= 리뷰 60건만 받고 「완료」를 띄운 것과 같은 구조의 무음 실패).
     await mapWithConcurrency(tasks, 8, async (task) => {
+      let failReason = null;
       try {
         const targetUrl = smallImage ? toSmallImageUrl(task.url) : task.url;
         const savedPath = await downloadAndSaveReviewImage(
           targetUrl,
           photoFolderPath,
           currentPage,
-          task.reviewIdx,
+          indexOffset + task.reviewIdx,
           task.photoIdx,
-          { keepQuery: !!smallImage }
+          { keepQuery: !!smallImage, onFail: (reason) => { failReason = reason; } }
         );
         if (savedPath) {
           photoResults[task.reviewIdx][task.photoIdx] = savedPath;
+          stats.ok++;
+        } else {
+          countPhotoFailure(stats, failReason || '다운로드 실패 (사유 미상)');
         }
       } catch (e) {
         console.error(`[NaverReviewExtractor] 리뷰 ${task.reviewIdx + 1} 이미지 ${task.photoIdx + 1} 다운로드 실패: ${e.message}`);
+        countPhotoFailure(stats, String((e && e.message) || e));
       } finally {
-        completed++;
-        if (completed % 100 === 0 || completed === total) {
-          sendLog?.(`[진행] 이미지 ${completed}/${total} 다운로드 중...`, 'info', true);
+        const done = stats.ok + stats.fail;
+        if (done % 100 === 0 || done === stats.total) {
+          sendLog?.(`[진행] 이미지 ${stats.ok.toLocaleString()}/${stats.total.toLocaleString()}장 저장${stats.fail ? ` (실패 ${stats.fail.toLocaleString()})` : ''}`, 'info', true);
         }
       }
     });
+
+    // ★사진 실패는 «리뷰 수집»의 부분수집과 구분해서 알린다 — 리뷰는 다 받았는데 사진만 실패한 경우가 있다.
+    //   ⛔사진 실패로 리뷰 저장을 실패로 뒤집지 않는다. 데이터는 살리고 «표기»만 정직하게.
+    if (stats.fail > 0) {
+      sendLog?.(`[경고] ⚠️ 사진 «부분 저장» — ${stats.ok.toLocaleString()}/${stats.total.toLocaleString()}장 저장, ${stats.fail.toLocaleString()}장 실패 (리뷰 본문/엑셀은 정상 저장됩니다)`, 'warning');
+      const top = topPhotoFailReasons(stats, 3);
+      if (top.length) sendLog?.(`[안내] 사진 실패 사유: ${top.map((t) => `${t.reason} ${t.count}건`).join(' / ')}`, 'info');
+    } else {
+      sendLog?.(`[완료] 이미지 ${stats.ok.toLocaleString()}/${stats.total.toLocaleString()}장 저장`, 'success', true);
+    }
   }
 
   // ③ 리뷰 객체 조립
@@ -206,9 +277,11 @@ export async function extractAllReviews(page, photoFolderPath, currentPage = 1, 
       console.log(`[NaverReviewExtractor] 📊 진행: ${i + 1}/${rawReviews.length}`);
     }
 
-    // 날짜 후처리 (YY.MM.DD. 패턴 보정)
+    // 날짜 후처리 (YY.MM.DD. 패턴 보정) — 화면 텍스트에 섞인 잡음을 잘라내는 보정이다.
+    // ★API 경로가 주는 ISO 날짜(2026-08-15)는 «건드리지 않는다» — 정규식의 '.'가 '-'에도 매치되어
+    //   '26-08-15'로 잘려나가기 때문(라이브 아님, 로컬 검증).
     let reviewDate = raw.reviewDate;
-    if (reviewDate && reviewDate !== '날짜 없음') {
+    if (reviewDate && reviewDate !== '날짜 없음' && !/^\d{4}-\d{2}-\d{2}$/.test(reviewDate)) {
       const m = reviewDate.match(/\d{2}\.\d{2}\.\d{2}\.?/);
       if (m) reviewDate = m[0];
     }
@@ -223,7 +296,7 @@ export async function extractAllReviews(page, photoFolderPath, currentPage = 1, 
     const productName = '정보 없음';
 
     reviews.push({
-      'Page_Review': `${currentPage}_${i + 1}`,
+      'Page_Review': `${currentPage}_${indexOffset + i + 1}`,
       'Review Score': raw.reviewScore,
       'Reviewer Name': raw.reviewerName,
       'Review Date': reviewDate,

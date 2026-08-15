@@ -82,9 +82,13 @@ function downloadImage(imageUrl, timeout = 10000) {
  * @param {number} photoIndex - 사진 인덱스 (0부터 시작)
  * @param {object} options - 추가 옵션
  * @param {boolean} options.keepQuery - true면 쿼리스트링 보존 (작게 받기 모드용, 기본 false)
+ * @param {Function} options.onFail - ★실패 «사유»를 호출자에게 넘기는 콜백 (reason:string)
+ *   이 함수는 실패해도 null만 돌려주고 사유는 console.error에만 남았다 — 패키징 앱은 devTools가 꺼져 있어
+ *   그 로그를 볼 채널 자체가 없다(= 무음 실패). 사유를 밖으로 흘려보내 집계·표기할 수 있게 한다.
  * @returns {Promise<string|null>} 저장된 이미지 파일 경로 또는 null
  */
 export async function downloadAndSaveReviewImage(imageUrl, photoFolderPath, currentPage, reviewIndex, photoIndex, options = {}) {
+  const reportFail = (reason) => { try { options.onFail?.(reason); } catch {} };
   try {
     console.log(`[ImageDownloader] 이미지 다운로드 시작: ${imageUrl}`);
 
@@ -92,6 +96,7 @@ export async function downloadAndSaveReviewImage(imageUrl, photoFolderPath, curr
     const originalUrl = getOriginalImageUrl(imageUrl, options.keepQuery === true);
     if (!originalUrl) {
       console.log(`[ImageDownloader] ⚠️ 유효하지 않은 이미지 URL`);
+      reportFail('유효하지 않은 이미지 URL');
       return null;
     }
     
@@ -127,6 +132,7 @@ export async function downloadAndSaveReviewImage(imageUrl, photoFolderPath, curr
     return filepath;
   } catch (error) {
     console.error(`[ImageDownloader] ❌ 이미지 다운로드 실패: ${error.message}`);
+    reportFail(String((error && error.message) || error));
     return null;
   }
 }

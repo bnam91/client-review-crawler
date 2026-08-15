@@ -8,7 +8,7 @@ import updater from 'electron-updater';
 import log from 'electron-log';
 
 const { autoUpdater } = updater;
-import { readFileSync } from 'fs';
+import { readFileSync, existsSync } from 'fs';
 import https from 'https';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -38,8 +38,16 @@ const isDev = process.env.NODE_ENV === 'development';
 log.transports.file.level = 'info';
 autoUpdater.logger = log;
 
-// package.json에서 GitHub 정보 읽어오기
+// package.json에서 앱 이름/버전 읽어오기
+// ⚠️ 주의: electron-builder는 패키징 시 package.json에서 "build" 키를 «제거»한다.
+//         따라서 런타임에 packageJson.build.publish를 읽으면 패키징된 앱에서는 항상 undefined다.
+//         (v1.6.9 패키징 바이너리 실측: "⚠️ GitHub 릴리즈 설정이 없습니다." → 업데이트 체크 자체가 막힘)
+//         → GitHub owner/repo는 아래 소스 상수를 쓰고, 빌드설정은 런타임에 읽지 않는다.
 const packageJson = JSON.parse(readFileSync(join(__dirname, 'package.json'), 'utf-8'));
+
+// GitHub 릴리즈 정보 (소스 상수 — package.json.build.publish와 «수동 동기화» 필요)
+const GITHUB_OWNER = 'bnam91';
+const GITHUB_REPO = 'client-review-crawler';
 
 // 현재 앱 버전 정보 출력
 console.log('\n========================================');
@@ -51,42 +59,41 @@ console.log(`플랫폼: ${process.platform}`);
 console.log(`개발 모드: ${isDev ? '예' : '아니오'}`);
 console.log('========================================\n');
 
-if (packageJson.build && packageJson.build.publish) {
-  const { owner, repo } = packageJson.build.publish;
-  
-  // GitHub 설정 검증
-  if (owner === '입력해주세요' || repo === '입력해주세요' || !owner || !repo) {
-    console.log('⚠️  GitHub 릴리즈 설정이 완료되지 않았습니다.');
-    console.log('   package.json의 build.publish.owner와 build.publish.repo를 설정하세요.');
-    console.log(`   현재 설정: Owner="${owner}", Repo="${repo}"\n`);
+console.log(`🔗 GitHub 릴리즈 설정:`);
+console.log(`   Owner: ${GITHUB_OWNER}`);
+console.log(`   Repo: ${GITHUB_REPO}`);
+console.log(`   URL: https://github.com/${GITHUB_OWNER}/${GITHUB_REPO}/releases`);
+
+if (app.isPackaged) {
+  // 패키징된 앱: Contents/Resources/app-update.yml(electron-builder가 생성)을 우선 사용한다.
+  // setFeedURL로 덮어쓰지 않는다 — updaterCacheDirName 등 yml의 다른 필드까지 잃게 된다.
+  const packagedUpdateConfig = join(process.resourcesPath, 'app-update.yml');
+  if (existsSync(packagedUpdateConfig)) {
+    console.log(`   업데이트 설정 소스: app-update.yml (패키징 앱)\n`);
   } else {
-    console.log(`🔗 GitHub 릴리즈 설정:`);
-    console.log(`   Owner: ${owner}`);
-    console.log(`   Repo: ${repo}`);
-    console.log(`   URL: https://github.com/${owner}/${repo}/releases\n`);
-    
+    // 안전망: dir 타겟 등 app-update.yml이 없는 빌드에서도 업데이트 체크가 죽지 않도록 피드를 직접 지정
+    console.log(`   ⚠️  app-update.yml 없음 → setFeedURL로 대체 (${packagedUpdateConfig})\n`);
     autoUpdater.setFeedURL({
       provider: 'github',
-      owner: owner,
-      repo: repo
+      owner: GITHUB_OWNER,
+      repo: GITHUB_REPO
     });
-    
-    // 개발 모드에서도 업데이트 체크 가능하도록 설정
-    if (isDev || process.argv.includes('--dev') || !app.isPackaged) {
-      // 개발 모드에서 강제로 체크 가능하도록 설정
-      autoUpdater.forceDevUpdateConfig = true;
-      // 업데이트 체크를 강제로 활성화
-      autoUpdater.allowPrerelease = false;
-      // 개발 모드에서도 체크 가능하도록 업데이트 설정 경로 명시
-      try {
-        autoUpdater.updateConfigPath = join(__dirname, 'dev-app-update.yml');
-      } catch (e) {
-        // 설정 실패해도 계속 진행
-      }
-    }
   }
 } else {
-  console.log('⚠️  GitHub 릴리즈 설정이 없습니다. package.json의 build.publish를 확인하세요.\n');
+  // 개발 모드(패키징 안 됨): app-update.yml이 없으므로 피드를 코드에서 지정한다.
+  console.log(`   업데이트 설정 소스: setFeedURL (개발 모드)\n`);
+  autoUpdater.setFeedURL({
+    provider: 'github',
+    owner: GITHUB_OWNER,
+    repo: GITHUB_REPO
+  });
+  // 개발 모드에서도 electron-updater 폴백이 동작하도록 설정
+  autoUpdater.forceDevUpdateConfig = true;
+  autoUpdater.allowPrerelease = false;
+  const devUpdateConfig = join(__dirname, 'dev-app-update.yml');
+  if (existsSync(devUpdateConfig)) {
+    autoUpdater.updateConfigPath = devUpdateConfig;
+  }
 }
 
 // 자동 다운로드/설치 비활성화 — D 옵션 (자체 알림 + 외부 링크)
@@ -324,19 +331,12 @@ async function checkVersionViaAPI(owner, repo) {
 
 // 업데이트 체크 함수
 async function checkForUpdates() {
-  // GitHub 설정 확인
-  if (!packageJson.build || !packageJson.build.publish) {
-    console.log('❌ 업데이트 체크 실패: GitHub 릴리즈 설정이 없습니다.\n');
-    return;
-  }
-  
-  const { owner, repo } = packageJson.build.publish;
-  if (owner === '입력해주세요' || repo === '입력해주세요' || !owner || !repo) {
-    console.log('❌ 업데이트 체크 실패: GitHub 릴리즈 설정이 완료되지 않았습니다.');
-    console.log('   package.json의 build.publish.owner와 build.publish.repo를 설정하세요.\n');
-    return;
-  }
-  
+  // ⚠️ 여기서 packageJson.build.publish를 «검사하지 않는다».
+  //    electron-builder가 패키징 시 build 키를 제거하므로, 그 가드가 있으면
+  //    패키징된 앱은 autoUpdater.checkForUpdates()에 도달조차 못 한다(v1.6.9 실측 결함).
+  const owner = GITHUB_OWNER;
+  const repo = GITHUB_REPO;
+
   console.log('🔍 업데이트 확인 중...');
   console.log(`   현재 버전: ${packageJson.version}`);
   console.log(`   GitHub: ${owner}/${repo}`);
@@ -379,11 +379,13 @@ async function checkForUpdates() {
       console.log(`\n⚠️  GitHub API 확인 실패: ${error.message}`);
       console.log('   electron-updater로 재시도합니다...\n');
       // API 실패 시 electron-updater로 재시도
-      autoUpdater.checkForUpdates();
+      // ('error' 이벤트에서 이미 처리하므로 UnhandledPromiseRejection만 막는다)
+      autoUpdater.checkForUpdates().catch(() => {});
     }
   } else {
     // 프로덕션 모드 또는 패키징된 앱에서는 electron-updater 사용
-    autoUpdater.checkForUpdates();
+    // ('error' 이벤트에서 이미 처리하므로 UnhandledPromiseRejection만 막는다)
+    autoUpdater.checkForUpdates().catch(() => {});
   }
 }
 

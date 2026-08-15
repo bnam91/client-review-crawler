@@ -563,14 +563,28 @@ document.addEventListener('DOMContentLoaded', () => {
           const result = await window.electronAPI.openUrlInBrowser(url, state.platform, state.collectionType, state.sort, state.pages, customPages, savePath, openFolder, excludeSecret, downloadImages, smallImage, enableDiagnostic, slowMode);
           if (result.success) {
             addLog(`[브라우저] 브라우저에서 URL을 열었습니다.`);
-            showStatusMessage('브라우저에서 URL을 열었습니다.', 'success');
+            // 완료 문구는 «결과 기반»으로 여기서 1회만 낸다.
+            // (예전에는 아래 setTimeout이 결과와 무관하게 초록 '완료'를 덮어써서 부분수집 경고가 무력화됐다)
+            if (result.unverified) {
+              // 총 리뷰 수를 못 읽은 채 상한/동결로 끝난 경우 — 성공으로 보이게 하면 안 된다(무증상 종료).
+              addLog('[완료] ⚠️ 수집량을 «검증할 수 없는» 상태로 종료되었습니다 — 상품 페이지의 리뷰 수와 직접 비교해 주세요.');
+              showStatusMessage('⚠️ 수집량 검증 불가 — 전량인지 확인할 수 없습니다. 로그의 경고를 확인해 주세요.', 'warning');
+            } else if (result.partial) {
+              addLog('[완료] ⚠️ 부분수집으로 종료되었습니다 — 위 경고를 확인하고 다시 실행해 주세요.');
+              showStatusMessage('⚠️ 부분수집으로 종료되었습니다. 로그의 경고를 확인해 주세요.', 'warning');
+            } else {
+              addLog('[완료] 리뷰 수집이 완료되었습니다.');
+              showStatusMessage('리뷰 수집이 완료되었습니다.', 'success');
+            }
           } else {
             const errorMessage = result.error || '알 수 없는 오류';
-            addLog(`[오류] 브라우저 열기 실패: ${errorMessage}`);
-            showStatusMessage(`브라우저 열기 실패: ${errorMessage}`, 'error');
+            // 실패 지점에 따라 문구를 구분한다 — 수집 단계 실패(0건 등)를 '브라우저 열기 실패'로 알리면 오해를 부른다.
+            const failLabel = result.failedAt === 'collect' ? '수집 실패' : '브라우저 열기 실패';
+            addLog(`[오류] ${failLabel}: ${errorMessage}`);
+            showStatusMessage(`${failLabel}: ${errorMessage}`, 'error');
             // 캡챠 관련 에러는 모달을 띄우지 않음 (로그 박스에만 표시)
             if (!errorMessage.includes('캡챠')) {
-              showModal(`브라우저 열기 실패: ${errorMessage}`);
+              showModal(`${failLabel}: ${errorMessage}`);
             }
             startBtn.disabled = false;
             startBtn.classList.remove('loading');
@@ -594,10 +608,9 @@ document.addEventListener('DOMContentLoaded', () => {
         startBtn.textContent = '수집 시작하기';
       }
       
-      // 시뮬레이션 (실제로는 크롤링 로직 실행)
+      // 버튼 복구만 담당 (완료/부분수집 문구는 위에서 result 기반으로 이미 출력됨).
+      // ⚠️ 여기서 완료 메시지를 다시 찍으면 부분수집·속도제한 경고를 초록 '완료'로 덮어쓰게 된다.
       setTimeout(() => {
-        addLog('[완료] 리뷰 수집이 완료되었습니다.');
-        showStatusMessage('리뷰 수집이 완료되었습니다.', 'success');
         startBtn.disabled = false;
         startBtn.classList.remove('loading');
         startBtn.textContent = '수집 시작하기';

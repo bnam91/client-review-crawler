@@ -7,6 +7,74 @@
 import { REVIEW } from './naverSelectors.js';
 
 /**
+ * 리뷰 «총건수» 응답 URL 판별 정규식.
+ *
+ * ★2026-08-15 라이브 실측 (brand.naver.com/frankliin/products/10422056773, 리뷰 11,737건):
+ *   POST https://brand.naver.com/n/v1/contents/reviews/query-pages
+ *     → {contents:[20], page:1, size:20, totalElements:11737, totalPages:587, sort, first, last}
+ *   페이지를 넘겨도 totalElements는 11737로 고정 (page=1,2,3 모두 동일 관측).
+ *
+ * ⚠️ 같은 화면의 «.../v1/contents/reviews/gallery-attaches/...» 응답도 totalElements를 갖지만
+ *    그 값은 «포토/동영상 리뷰 수»(같은 상품에서 9,392)라 총 리뷰 수가 아니다.
+ *    → 반드시 query-pages로 «한정»해야 한다. (아무 totalElements나 주우면 9,392로 오판)
+ */
+export const REVIEW_TOTAL_URL_RE = /\/v1\/contents\/reviews\/query-pages/;
+
+/**
+ * 리뷰 API 응답에서 총건수를 뽑는다. (순수 함수 — 브라우저 없이 node로 검증 가능)
+ * @param {string} url  응답 URL
+ * @param {any} json    파싱된 응답 본문
+ * @returns {number|null} 실패/비대상이면 null = "미확인" (절대 추정하지 않는다)
+ */
+export function pickReviewTotalFromResponse(url, json) {
+  if (typeof url !== 'string' || !REVIEW_TOTAL_URL_RE.test(url)) return null;
+  if (!json || typeof json !== 'object' || Array.isArray(json)) return null;
+  const n = json.totalElements;
+  if (typeof n !== 'number' || !Number.isFinite(n) || n <= 0) return null;
+  return Math.floor(n);
+}
+
+/**
+ * 리뷰 총건수 «네트워크» 감시자 — 화면 텍스트 파싱을 대체하는 «1순위» 출처.
+ *
+ * innerText 파싱은 라이브에서 평점과 총계가 붙어 렌더되는 케이스("4.9111,737건 리뷰")가 있어
+ * 어떤 정규식도 안전하지 않다. 그래서 값의 출처를 응답 JSON으로 옮긴다.
+ *
+ * ★모달을 여는 순간 query-pages가 발사되므로 «모달 진입 전»에 붙여야 한다.
+ * @param {object} page
+ * @param {object} options - flags: 캡처값을 올려둘 공유 객체 / onCapture: 1회 콜백
+ * @returns {{get:()=>number|null, detach:()=>void}}
+ */
+export function attachReviewTotalWatcher(page, options = {}) {
+  const { flags = null, onCapture = null } = options;
+  let total = null;
+  const onResponse = (res) => {
+    if (total !== null) return; // 한 번만 캡처 (수백 페이지 응답을 매번 파싱하지 않는다)
+    let url = '';
+    try { url = res.url(); } catch { return; }
+    if (!REVIEW_TOTAL_URL_RE.test(url)) return;
+    // 본문 파싱은 비동기 — 실패해도 수집을 방해하지 않도록 전부 삼킨다(총계는 실패 시 null = 미확인).
+    Promise.resolve()
+      .then(() => res.json())
+      .then((json) => {
+        if (total !== null) return;
+        const n = pickReviewTotalFromResponse(url, json);
+        if (n === null) return;
+        total = n;
+        if (flags) flags.expectedTotalFromNetwork = n;
+        console.log(`[NaverPagination] 📡 리뷰 총건수 캡처(네트워크 totalElements): ${n}`);
+        if (onCapture) { try { onCapture(n); } catch {} }
+      })
+      .catch(() => {});
+  };
+  try { page.on('response', onResponse); } catch { /* 페이지가 이미 닫힘 */ }
+  return {
+    get: () => total,
+    detach: () => { try { page.off('response', onResponse); } catch {} },
+  };
+}
+
+/**
  * 모달 내 현재 리뷰 개수 반환
  * @param {object} page - Puppeteer page 객체
  * @returns {Promise<number>} 리뷰 개수
@@ -32,6 +100,7 @@ export async function getReviewCount(page) {
  *      → 단, 직전 추가 대기로도 변동 발생 시 stable 카운트 리셋
  *      → 동결이 네이버 속도제한(HTTP 429) 때문이면 "리뷰 끝"이 아님:
  *        단계적 대기(기본 30s→60s→120s) 후 이어받기, 전부 소진 시에만 부분수집 종료
+ *      → 429가 아닌 동결도 "리뷰 끝"이라 단정하지 않음: 재점화 + 8s/10s 대기로 2회 재확인(UI에 대기 표시)
  *   3) max 200회 시도 또는 max 10분 (429 대기 시간은 미산입)
  *
  * @param {object} page - Puppeteer page 객체
@@ -39,7 +108,8 @@ export async function getReviewCount(page) {
  * @param {object} options
  *   - diagnostic: 진단 수집 객체 (옵트인)
  *   - chunkNum: 청크 번호 (로그용)
- *   - flags: 호출자 공유 상태 객체 — rateLimitHits/endedByRateLimit/resumedAfterRateLimit 기록
+ *   - flags: 호출자 공유 상태 객체 — rateLimitHits/endedByRateLimit/resumedAfterRateLimit,
+ *            terminationReason(항상)/endedByStall/endedByNoContainer/usedContainerFallback 기록
  *   - sendLog: UI 로그 전송 함수 (대기/재개 상황을 사용자에게 표시)
  *   - backoffScheduleMs / tuning: 테스트용 오버라이드
  * @returns {Promise<number>} 최종 리뷰 개수
@@ -66,6 +136,20 @@ export async function loadMoreReviews(page, targetCount = Infinity, options = {}
   const SCROLL_WAIT_MS = tuning.scrollWaitMs ?? 3000;
   const STABLE_RECHECK_WAIT_MS = tuning.stableRecheckWaitMs ?? 2500; // 동결 의심 시 추가 한 번 대기
   const STABLE_THRESHOLD = 3;          // 2→3회 연속 동결 필요
+  // 429가 «아닌» 동결(네이버 lazy-load 일시 정지/실패) 재시도 스케줄.
+  // "약 7초 무변동 = 리뷰 끝"이라는 단일 휴리스틱이 부분수집을 '완료'로 위장시켜 온 지점이라
+  // 종료를 확정하기 전에 재점화 + 긴 대기를 최대 2회 더 준다(대기 사실은 UI에 표시).
+  // 8s→4s로 낮춤: 아래 «저비용 회복»이 앞단에서 대부분을 흡수하므로 여기까지 오는 건 진짜 동결에 가깝다.
+  const STALL_RETRY_WAITS_MS = tuning.stallRetryWaitsMs ?? [4000, 10000];
+  // ★저비용 회복(2026-08-14 실측 대응) — 동결 재시도의 «비용»을 줄이는 앞단.
+  //   실측: 1,420건 수집 중 동결 재시도가 7회 발동해 회당 ≈20초(낭비 스크롤 9s + 재확인 2.5s + 대기 8s)를
+  //   먹었고 처리량이 2.21건/초 → 0.63건/초로 붕괴, 그게 max_duration을 유발했다.
+  //   판별: «직전까지 실제로 늘어나고 있었으면» 그 동결은 수집 중 일시 정체일 가능성이 높다
+  //        → 재확인(2.5s)·재점화(스크롤 사이클)·긴 대기(8s)를 건너뛰고 짧게만 쉰다.
+  //   ⛔조용한 실패 방지: 예산을 두고(진행 있으면 리셋) 소진되면 «원래의» 재점화+긴 대기 경로로 떨어진다.
+  const RECENT_PROGRESS_WINDOW_MS = tuning.recentProgressWindowMs ?? 30000;
+  const SHORT_STALL_WAIT_MS = tuning.shortStallWaitMs ?? 3000;
+  const MAX_SHORT_STALL_RECOVERIES = tuning.maxShortStallRecoveries ?? 3;
 
   // 429 속도제한 감지 — 스크롤 중 네이버 응답에 429가 섞이면 기록해 둔다.
   // 동결(리뷰 안 늘어남)이 "진짜 끝"인지 "차단"인지 이 기록으로 판별한다.
@@ -84,6 +168,12 @@ export async function loadMoreReviews(page, targetCount = Infinity, options = {}
     } catch {}
   };
   page.on('response', onResponse);
+
+  // 리뷰 총건수(totalElements) 캡처 — 호출부(naverService)가 모달 진입 전에 이미 붙였으면 중복 파싱하지 않는다.
+  // 단독 호출(테스트/타 호출부)에서도 총계를 얻을 수 있도록 여기서 자체 보강.
+  const localTotalWatcher = (flags && flags.expectedTotalFromNetwork)
+    ? null
+    : attachReviewTotalWatcher(page, { flags });
 
   // 진단 — 첫 청크 시작 시점에 모달 내부 구조 dump (사용자 환경에서 scroll container 매치 여부 확인용)
   if (diagnostic && chunkNum === 1 && !diagnostic.scrollContainer) {
@@ -119,11 +209,75 @@ export async function loadMoreReviews(page, targetCount = Infinity, options = {}
     }
   }
 
+  // 종료 사유는 «항상» 기록한다 — 진단 옵트인(diagnostic)이 꺼져 있어도 flags로 호출부에 노출.
+  // (기존에는 MAX_DURATION 초과·시도 소진 경로가 사유를 남기지 않아 원인 규명이 불가능했다)
+  let terminationReason = null;
+  const setTermination = (reason, onlyIfEmpty = false) => {
+    terminationReason = reason;
+    if (diagnostic && !(onlyIfEmpty && diagnostic.terminationReason)) diagnostic.terminationReason = reason;
+    if (flags) flags.terminationReason = reason;
+  };
+
+  // 스크롤 컨테이너 조회 — 하드코딩 셀렉터가 «1순위»(기존 동작 100% 보존),
+  // null일 때에 «한해» 모달 내부 동적 탐색으로 폴백한다.
+  const probeContainer = (scrollToBottom) => page.evaluate((containerSel, doScroll) => {
+    let usedFallback = false;
+    let container = document.querySelector(containerSel);
+    if (!container) {
+      const dialog = Array.from(document.querySelectorAll('[role="dialog"]'))
+        .find(d => d.querySelector('li[id^="REVIEW_ITEM_"]'));
+      if (dialog) {
+        container = Array.from(dialog.querySelectorAll('*')).find(el => {
+          const cs = getComputedStyle(el);
+          return (cs.overflowY === 'auto' || cs.overflowY === 'scroll')
+            && el.scrollHeight > el.clientHeight
+            && el.querySelector('li[id^="REVIEW_ITEM_"]');
+        }) || null;
+      }
+      usedFallback = !!container;
+    }
+    if (!container) return { scrollHeight: -1, usedFallback: false };
+    if (doScroll) container.scrollTop = container.scrollHeight;
+    return { scrollHeight: container.scrollHeight, usedFallback };
+  }, REVIEW.scrollContainerSelector, !!scrollToBottom);
+
+  // 로더 재점화 — 네이버 프론트는 차단/장애를 만나면 재요청을 멈추는 것으로 관측됨(라이브 실측).
+  // ① 모달 안 재시도 버튼 클릭 ② 없으면 위로 2뷰포트 스크롤해서 다음 바닥 스크롤 때 sentinel을 재교차시킨다.
+  const retriggerLoader = async () => {
+    try {
+      const retriggered = await page.evaluate((sel) => {
+        const dialogs = Array.from(document.querySelectorAll('[role="dialog"]'));
+        const dialog = dialogs.find(d => d.querySelector('li[id^="REVIEW_ITEM_"]'));
+        if (dialog) {
+          const btn = Array.from(dialog.querySelectorAll('button'))
+            .find(b => /다시\s*시도|재시도|새로고침/.test(b.textContent || ''));
+          if (btn) { btn.click(); return 'retry-button'; }
+        }
+        let c = document.querySelector(sel);
+        if (!c && dialog) {
+          c = Array.from(dialog.querySelectorAll('*')).find(el => {
+            const cs = getComputedStyle(el);
+            return (cs.overflowY === 'auto' || cs.overflowY === 'scroll')
+              && el.scrollHeight > el.clientHeight
+              && el.querySelector('li[id^="REVIEW_ITEM_"]');
+          }) || null;
+        }
+        if (c) c.scrollTop = Math.max(0, c.scrollTop - Math.max(1200, c.clientHeight * 2));
+        return 'scroll-cycle';
+      }, REVIEW.scrollContainerSelector);
+      console.log(`[NaverPagination]   🔁 로더 재점화: ${retriggered}`);
+    } catch {}
+  };
+
   const startTime = Date.now();
   let lastScrollHeight = -1;
   let lastReviewCount = -1;
   let stableScrollCount = 0;
   let stableCountCount = 0;
+  let stallRetryIdx = 0;           // 429가 아닌 동결 재시도 횟수 (진행 재개 시 리셋)
+  let shortStallCount = 0;         // 저비용 회복 사용 횟수 (진행 재개 시 리셋)
+  let shortStallNotified = false;  // 저비용 회복 안내는 청크당 1회만
+  let fallbackNotified = false;    // 컨테이너 폴백 경고를 1회만 표시
   let lastProgressAt = Date.now(); // 마지막으로 리뷰 개수가 늘어난 시각 (429 인과 판별용)
   let totalBackoffMs = 0;          // 속도제한 대기 누적 (MAX_DURATION에 미산입)
   let backoffIdx = 0;              // 다음에 쓸 대기 단계 (진행 재개 시 리셋)
@@ -136,27 +290,35 @@ export async function loadMoreReviews(page, targetCount = Infinity, options = {}
     // 시간 초과 체크 (429 대기 시간은 제외 — 대기가 시간예산을 잡아먹으면 이어받기가 무의미)
     if (Date.now() - startTime - totalBackoffMs > MAX_DURATION_MS) {
       console.log(`[NaverPagination]   ⏱️ 최대 대기 시간(${MAX_DURATION_MS}ms) 초과로 종료`);
+      setTermination('max_duration');
       break;
     }
 
     // 목표 도달 체크
     if (currentCount >= targetCount) {
       console.log(`[NaverPagination]   🎯 목표 리뷰 개수(${targetCount}) 도달`);
-      if (diagnostic && !diagnostic.terminationReason) diagnostic.terminationReason = 'target_reached';
+      setTermination('target_reached', true);
       break;
     }
 
     // 스크롤 컨테이너 끝까지 스크롤 + 현재 scrollHeight 반환
-    const scrollHeight = await page.evaluate((containerSel) => {
-      const container = document.querySelector(containerSel);
-      if (!container) return -1;
-      container.scrollTop = container.scrollHeight;
-      return container.scrollHeight;
-    }, REVIEW.scrollContainerSelector);
+    const scrolled = await probeContainer(true);
+    const scrollHeight = scrolled.scrollHeight;
+
+    if (scrolled.usedFallback && !fallbackNotified) {
+      // 조용한 실패 방지 — 폴백이 발동했다는 사실 자체를 사용자에게 알린다.
+      fallbackNotified = true;
+      console.log(`[NaverPagination]   ⚠️ 하드코딩 scroll container 미매치 — 모달 내부 동적 탐색으로 폴백`);
+      if (sendLog) sendLog(`[주의] 네이버 화면 구조가 바뀌어 대체 경로로 수집합니다 — 수집 개수를 꼭 확인해 주세요`, 'warning');
+      if (flags) flags.usedContainerFallback = true;
+    }
 
     if (scrollHeight === -1) {
+      // 하드코딩 셀렉터도 폴백 탐색도 실패 — '완료'로 위장하지 말고 명시적 오류로 알린다.
       console.log(`[NaverPagination]   ⚠️ scroll container를 찾을 수 없습니다.`);
-      if (diagnostic) diagnostic.terminationReason = 'no_scroll_container';
+      if (sendLog) sendLog(`[오류] 네이버 화면 구조가 바뀌어 리뷰 목록을 스크롤할 수 없습니다 — 앱 업데이트가 필요합니다`, 'error');
+      if (flags) flags.endedByNoContainer = true;
+      setTermination('no_scroll_container');
       break;
     }
 
@@ -184,6 +346,8 @@ export async function loadMoreReviews(page, targetCount = Infinity, options = {}
     if (newCount !== currentCount) {
       console.log(`[NaverPagination]   📈 시도 ${attempt + 1}: ${currentCount} → ${newCount} (scrollHeight=${scrollHeight})`);
       lastProgressAt = Date.now();
+      stallRetryIdx = 0; // 다시 늘어남 = 동결 해소, 재시도 예산 회복
+      shortStallCount = 0; // 저비용 회복 예산도 회복
       if (backoffIdx > 0) {
         // 속도제한 대기 후 실제로 다시 늘어남 = 이어받기 성공
         console.log(`[NaverPagination]   ▶️ 속도제한 해제 확인 — 수집 재개 (${currentCount} → ${newCount})`);
@@ -209,12 +373,30 @@ export async function loadMoreReviews(page, targetCount = Infinity, options = {}
 
     // 종료 의심 — 추가 대기로 lazy load 응답 한 번 더 확인
     if (stableScrollCount >= STABLE_THRESHOLD && stableCountCount >= STABLE_THRESHOLD) {
+      // ★저비용 회복 — «수집 도중»의 일시 정체는 값싸게 넘긴다 (재확인·재점화·긴 대기 전부 생략).
+      //   조건: 429가 아니고 && 직전 진행이 최근이며 && 예산이 남아 있을 때.
+      //   실측 근거: 동결 재시도 7회가 회당 ≈20초를 먹어 처리량을 3.5배 떨어뜨리고 max_duration을 유발했다.
+      const sinceProgressMs = Date.now() - lastProgressAt;
+      const looksRateLimited = rateLimit.last429At >= lastProgressAt;
+      if (!looksRateLimited && sinceProgressMs < RECENT_PROGRESS_WINDOW_MS && shortStallCount < MAX_SHORT_STALL_RECOVERIES) {
+        shortStallCount++;
+        console.log(`[NaverPagination]   ⏩ 일시 정체(직전 진행 ${Math.round(sinceProgressMs / 1000)}초 전) — ${SHORT_STALL_WAIT_MS}ms만 쉬고 계속 (저비용 회복 ${shortStallCount}/${MAX_SHORT_STALL_RECOVERIES}, 현재 ${currentCount}개)`);
+        if (sendLog && !shortStallNotified) {
+          shortStallNotified = true;
+          sendLog(`[진행] 리뷰 로딩이 잠깐 밀렸습니다 — 잠시 기다렸다 계속합니다 (현재 ${currentCount}개)`, 'info');
+        }
+        totalBackoffMs += SHORT_STALL_WAIT_MS; // 대기는 시간예산에 미산입 (429/재시도 대기와 동일 원칙)
+        await new Promise(resolve => setTimeout(resolve, SHORT_STALL_WAIT_MS));
+        // 재점화 스크롤 사이클은 «생략» — 다음 루프의 바닥 스크롤 1회로 확인한다.
+        // 카운터를 THRESHOLD-1로 되돌려, 재확인이 필요하면 스크롤 1회(=3초)만에 다시 이 분기로 오게 한다.
+        stableScrollCount = STABLE_THRESHOLD - 1;
+        stableCountCount = STABLE_THRESHOLD - 1;
+        continue;
+      }
+
       console.log(`[NaverPagination]   🤔 ${STABLE_THRESHOLD}회 연속 동결 감지 — ${STABLE_RECHECK_WAIT_MS}ms 추가 대기 후 재확인`);
       await new Promise(resolve => setTimeout(resolve, STABLE_RECHECK_WAIT_MS));
-      const recheckHeight = await page.evaluate((sel) => {
-        const c = document.querySelector(sel);
-        return c ? c.scrollHeight : -1;
-      }, REVIEW.scrollContainerSelector);
+      const recheckHeight = (await probeContainer(false)).scrollHeight;
       const recheckCount = await getReviewCount(page);
 
       if (recheckHeight !== lastScrollHeight || recheckCount !== currentCount) {
@@ -242,24 +424,8 @@ export async function loadMoreReviews(page, targetCount = Infinity, options = {}
         totalBackoffMs += waitMs;
         await new Promise(resolve => setTimeout(resolve, waitMs));
 
-        // 로더 재점화 — 네이버 프론트는 429를 맞으면 재요청을 멈추는 것으로 관측됨(라이브 실측: 429 1회 후 무요청).
-        // ① 모달 안에 에러/재시도 버튼이 노출됐으면 클릭 ② 아니면 큰 스크롤 사이클(위로 2뷰포트 이상)로
-        //    sentinel을 화면 밖으로 뺐다가 다음 루프의 바닥 스크롤에서 재교차시킨다.
-        try {
-          const retriggered = await page.evaluate((sel) => {
-            const dialogs = Array.from(document.querySelectorAll('[role="dialog"]'));
-            const dialog = dialogs.find(d => d.querySelector('li[id^="REVIEW_ITEM_"]'));
-            if (dialog) {
-              const btn = Array.from(dialog.querySelectorAll('button'))
-                .find(b => /다시\s*시도|재시도|새로고침/.test(b.textContent || ''));
-              if (btn) { btn.click(); return 'retry-button'; }
-            }
-            const c = document.querySelector(sel);
-            if (c) c.scrollTop = Math.max(0, c.scrollTop - Math.max(1200, c.clientHeight * 2));
-            return 'scroll-cycle';
-          }, REVIEW.scrollContainerSelector);
-          console.log(`[NaverPagination]   🔁 로더 재점화: ${retriggered}`);
-        } catch {}
+        // 로더 재점화 (429를 맞은 네이버 프론트는 재요청을 멈추는 것으로 관측됨 — 라이브 실측)
+        await retriggerLoader();
 
         stableScrollCount = 0;
         stableCountCount = 0;
@@ -271,21 +437,53 @@ export async function loadMoreReviews(page, targetCount = Infinity, options = {}
         console.log(`[NaverPagination]   🛑 속도제한이 풀리지 않아 중단합니다 (429 누적 ${rateLimit.hits}회, 대기 ${Math.round(totalBackoffMs / 1000)}초 소진) — 부분수집 ${currentCount}개`);
         if (sendLog) sendLog(`[경고] 네이버 속도제한이 풀리지 않아 수집을 중단합니다 — ${currentCount}개까지 수집됨 (부분수집)`, 'warning');
         if (flags) flags.endedByRateLimit = true;
-        if (diagnostic) diagnostic.terminationReason = 'rate_limit_giveup';
+        setTermination('rate_limit_giveup');
         break;
       }
 
-      console.log(`[NaverPagination]   🛑 더 이상 리뷰가 로드되지 않습니다 (시도 ${attempt + 1}회, 추가 대기로도 변동 없음)`);
-      if (diagnostic) diagnostic.terminationReason = 'stable_threshold';
+      // 429가 아닌 동결 — "약 7초 무변동 = 리뷰 끝"으로 단정하지 않는다.
+      // 네이버 lazy-load가 일시 정지/실패했을 수 있으므로 재점화 + 긴 대기로 최대 2회 더 확인한다.
+      //
+      // ★UI 등급 주의: '진짜 끝'과 '동결'은 코드상 구별 불가라, «전량 수집에 성공한 마지막 청크»도
+      //   반드시 이 경로를 탄다. 즉 1차 재시도는 정상 완주에서도 항상 발생한다.
+      //   → 1차는 «info»(마무리 확인 중), 2차부터 «warning»(정말 안 불러와짐)으로 등급을 나눈다.
+      //     (성공 화면에 주황 경고 2건이 뜨던 문제)
+      if (stallRetryIdx < STALL_RETRY_WAITS_MS.length) {
+        const waitMs = STALL_RETRY_WAITS_MS[stallRetryIdx];
+        stallRetryIdx++;
+        const waitSec = Math.round(waitMs / 1000);
+        console.log(`[NaverPagination]   ⏸️ 동결 감지(429 아님) — ${waitSec}초 대기 후 재점화 재시도 (${stallRetryIdx}/${STALL_RETRY_WAITS_MS.length}, 현재 ${currentCount}개)`);
+        if (sendLog) {
+          if (stallRetryIdx === 1) {
+            sendLog(`[진행] 마지막 리뷰까지 확인 중... (${waitSec}초, 현재 ${currentCount}개)`, 'info');
+          } else {
+            sendLog(`[대기] 리뷰가 더 안 불러와집니다 — ${waitSec}초 기다렸다 재시도 ${stallRetryIdx}/${STALL_RETRY_WAITS_MS.length} (현재 ${currentCount}개)`, 'warning');
+          }
+        }
+        totalBackoffMs += waitMs; // 재시도 대기는 시간예산에 미산입 (429 대기와 동일 원칙)
+        await new Promise(resolve => setTimeout(resolve, waitMs));
+        await retriggerLoader();
+        stableScrollCount = 0;
+        stableCountCount = 0;
+        continue;
+      }
+
+      console.log(`[NaverPagination]   🛑 더 이상 리뷰가 로드되지 않습니다 (시도 ${attempt + 1}회, 재점화 ${stallRetryIdx}회 후에도 변동 없음)`);
+      if (flags) flags.endedByStall = true;
+      setTermination('stable_threshold');
       break;
     }
   }
   } finally {
     page.off('response', onResponse);
+    if (localTotalWatcher) localTotalWatcher.detach();
     if (flags) flags.rateLimitHits = (flags.rateLimitHits || 0) + rateLimit.hits;
   }
 
-  console.log(`[NaverPagination] ✅ 무한 스크롤 완료. 최종 리뷰 개수: ${currentCount}`);
+  // for 소진(MAX_ATTEMPTS) 경로는 어떤 사유도 남기지 않는 유일한 구멍이었다 — 여기서 마지막으로 기록
+  if (!terminationReason) setTermination('attempts_exhausted');
+
+  console.log(`[NaverPagination] ✅ 무한 스크롤 완료. 최종 리뷰 개수: ${currentCount} (종료 사유: ${terminationReason})`);
   return currentCount;
 }
 
