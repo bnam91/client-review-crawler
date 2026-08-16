@@ -37,7 +37,25 @@ if (window.electronAPI && window.electronAPI.onUpdateStatus) {
         // 업데이트 체크 실패 — 사용자에게 노출 안 함 (네트워크 일시 단절 등 흔한 케이스)
         break;
 
-      // download-progress / update-downloaded — autoDownload 비활성화로 도달 안 함
+      // ★2026-08-16: 맥에서 autoDownload를 켰다 ⇒ 아래 두 상태가 «실제로 도달한다».
+      //   ⛔배선을 비워두면 앱이 «조용히» 받아서 «조용히» 바뀐다 — 오늘 리뷰크롤러에서 고친
+      //   「무음」 결함을 자동업데이트 쪽에 새로 만드는 셈이라, 반드시 사용자에게 보인다.
+      case 'download-progress': {
+        const pct = Math.round(data?.percent ?? 0);
+        // ★같은 줄을 «갱신»한다. addLogToLogBox는 항상 새 줄을 만들어서
+        //   진행률을 그대로 넘기면 로그가 수십 줄로 도배된다.
+        updateProgressLine(`[업데이트] 새 버전을 내려받는 중… ${pct}%`);
+        break;
+      }
+
+      case 'update-downloaded': {
+        const ver = data?.version || '?';
+        addLogToLogBox(
+          `[업데이트] v${ver} 내려받기 완료 — 앱을 종료하면 자동으로 설치됩니다.`,
+          'success'
+        );
+        break;
+      }
     }
   });
 }
@@ -67,6 +85,20 @@ function openReleasePage(url) {
 }
 
 // 로그 박스에 메시지 추가하는 헬퍼 함수
+// ★다운로드 진행률 전용 — «한 줄»을 계속 갱신한다(새 줄을 쌓지 않는다).
+let __updateProgressLine = null;
+function updateProgressLine(message) {
+  const logBox = document.getElementById('log-box');
+  if (!logBox) return;
+  if (!__updateProgressLine || !__updateProgressLine.isConnected) {
+    __updateProgressLine = document.createElement('div');
+    __updateProgressLine.className = 'log-line info';
+    logBox.appendChild(__updateProgressLine);
+  }
+  __updateProgressLine.textContent = message;
+  logBox.scrollTop = logBox.scrollHeight;
+}
+
 function addLogToLogBox(message, className = '') {
   const logBox = document.getElementById('log-box');
   if (!logBox) return;

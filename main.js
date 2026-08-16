@@ -96,12 +96,21 @@ if (app.isPackaged) {
   }
 }
 
-// 자동 다운로드/설치 비활성화 — D 옵션 (자체 알림 + 외부 링크)
-// 이유: macOS unsigned 빌드는 Squirrel.Mac 코드서명 검증 단계에서 자동업데이트 실패.
-//       Windows도 환경에 따라 차단될 수 있음.
-//       대신 새 버전 감지 시 logBox에 "다운로드 받으러 가기" 링크 표시 → 사용자가 직접 받음.
-autoUpdater.autoDownload = false;
-autoUpdater.autoInstallOnAppQuit = false;
+// ★자동 다운로드/설치 — «맥만» 켠다 (2026-08-16 현빈 지시)
+//
+// 원래 끈 이유(2026-04-30, v1.6.7): macOS unsigned 빌드는 Squirrel.Mac이 코드서명을 검증하는
+//   단계에서 자동업데이트가 실패했다. 그래서 D 옵션(자체 알림 + 외부 링크)으로 낮췄다.
+// ⇒ ★그 전제가 사라졌다: 2026-07-08 Developer ID 서명 + 공증이 붙었고, v1.7.0도 서명·공증본이다.
+//   맥은 이제 Squirrel.Mac 검증을 통과할 수 있으므로 자동 다운로드·설치를 켠다.
+//
+// ⚠️윈도우는 «그대로 둔다» — 코드서명 인증서가 아직 없다(구매 대기).
+//   미서명 상태의 자동설치는 환경에 따라 차단될 수 있고, 우리는 그걸 «재본 적이 없다».
+//   ⇒ 확인 안 된 것을 고객 앱에 자동으로 적용하지 않는다. 윈도우는 알림 + 다운로드 링크 유지.
+const AUTO_UPDATE_PLATFORMS = ['darwin'];
+const canAutoUpdate = AUTO_UPDATE_PLATFORMS.includes(process.platform);
+autoUpdater.autoDownload = canAutoUpdate;
+autoUpdater.autoInstallOnAppQuit = canAutoUpdate;
+console.log(`   자동 설치: ${canAutoUpdate ? '켜짐(맥)' : '꺼짐(알림+링크만)'} — platform=${process.platform}\n`);
 
 if (isDev || process.argv.includes('--dev')) {
   // 개발 모드에서도 업데이트 체크 가능하도록 설정
