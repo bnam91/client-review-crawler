@@ -20,3 +20,11 @@ jobs/tmp/
 # 외부 도구 서브트리(126MB) — 이 앱의 소스가 아니고, git add -A 한 번에 PUBLIC 레포로 통째로 들어간다
 claude-talk-to-figma-mcp/
 !build/entitlements.mac.plist
+
+# ★크롤링 산출물이 레포에 들어오는 사고 방지 (2026-08-18)
+#   e2e가 URL을 저장경로에 넣어 https:/brand.naver.com/... 폴더가 생겼고 git add -A로 커밋됐다.
+https:/
+http:/
+review_[0-9]*/
+naver_reviews_*.json
+naver_reviews_chunk_*.xlsx
