@@ -836,9 +836,21 @@ export async function handleNaver(browser, page, input, isUrl, collectionType = 
           sendLog(`[안내] 잠시(5~10분) 뒤에 다시 실행해 주세요. 수집 속도를 낮춰도 이 제한은 풀리지 않습니다.`, 'info');
         } else if (scrollFlags.endedByRateLimit) {
           sendLog(`[경고] ⚠️ 부분수집입니다 — 네이버가 수집 속도 제한(429)을 걸어 ${yieldSummary}까지만 수집되었습니다.`, 'warning');
-          sendLog(`[안내] '안정 수집' 체크박스를 체크한 뒤 다시 실행하면 속도제한 없이 전량 수집됩니다.`, 'info');
+          // ★'안정 수집'은 «DOM 스크롤 대기시간»만 바꾼다(scrollWaitMs 3000/1500) — API 경로엔 효과가 없다.
+          //   전에는 경로를 안 가리고 「체크하면 전량 수집됩니다」라고 «단언»했다. 틀린 안내였다(2026-08-18).
+          if (scrollFlags.usedApi) {
+            sendLog(`[안내] 잠시(5~10분) 뒤에 다시 실행해 주세요. ('안정 수집'은 이 경로에 효과가 없습니다)`, 'info');
+          } else {
+            sendLog(`[안내] '안정 수집'을 체크한 뒤 다시 실행하면 성공률이 올라갑니다.`, 'info');
+          }
         } else if (shortfall || apiIncomplete) {
           sendLog(`[경고] ⚠️ 부분수집입니다 — 이 상품의 리뷰는 ${expectedTotal ? expectedTotal.toLocaleString() : '?'}건인데 ${allReviews.length.toLocaleString()}건만 수집되었습니다.`, 'warning');
+          // ★네이버는 리뷰 API를 «1,000페이지(=20,000건)»에서 끊는다 (2026-08-18 실측 확정:
+          //   19,999 = 1,000페이지 × 20 − 1, Page_Review 최댓값 정확히 20,000).
+          //   다시 실행해도 같은 자리에서 끝나므로, 재시도를 권하면 «사용자 시간을 태운다».
+          if (scrollFlags.usedApi && expectedTotal > 20000 && allReviews.length >= 19000) {
+            sendLog(`[안내] 네이버가 한 번에 내려주는 리뷰는 «최대 2만 건»입니다 — 이 상품은 그 상한에 걸렸습니다. 다시 실행해도 같은 수량에서 끝납니다.`, 'info');
+          }
           sendLog(`[안내] 잠시 후 다시 실행해 주세요.${scrollFlags.usedApi ? '' : " ('안정 수집' 체크박스를 체크하면 성공률이 올라갑니다)"}`, 'info');
         } else if (unverified) {
           // ★총계를 못 읽었으면 «성공 UX로 흘리지 않고» 검증 불가를 명시한다.
@@ -1331,9 +1343,21 @@ export async function handleNaver(browser, page, input, isUrl, collectionType = 
           sendLog(`[안내] 잠시(5~10분) 뒤에 다시 실행해 주세요. 수집 속도를 낮춰도 이 제한은 풀리지 않습니다.`, 'info');
         } else if (scrollFlags.endedByRateLimit) {
           sendLog(`[경고] ⚠️ 부분수집입니다 — 네이버가 수집 속도 제한(429)을 걸어 ${yieldSummary}까지만 수집되었습니다.`, 'warning');
-          sendLog(`[안내] '안정 수집' 체크박스를 체크한 뒤 다시 실행하면 속도제한 없이 전량 수집됩니다.`, 'info');
+          // ★'안정 수집'은 «DOM 스크롤 대기시간»만 바꾼다(scrollWaitMs 3000/1500) — API 경로엔 효과가 없다.
+          //   전에는 경로를 안 가리고 「체크하면 전량 수집됩니다」라고 «단언»했다. 틀린 안내였다(2026-08-18).
+          if (scrollFlags.usedApi) {
+            sendLog(`[안내] 잠시(5~10분) 뒤에 다시 실행해 주세요. ('안정 수집'은 이 경로에 효과가 없습니다)`, 'info');
+          } else {
+            sendLog(`[안내] '안정 수집'을 체크한 뒤 다시 실행하면 성공률이 올라갑니다.`, 'info');
+          }
         } else if (shortfall || apiIncomplete) {
           sendLog(`[경고] ⚠️ 부분수집입니다 — 이 상품의 리뷰는 ${expectedTotal ? expectedTotal.toLocaleString() : '?'}건인데 ${allReviews.length.toLocaleString()}건만 수집되었습니다.`, 'warning');
+          // ★네이버는 리뷰 API를 «1,000페이지(=20,000건)»에서 끊는다 (2026-08-18 실측 확정:
+          //   19,999 = 1,000페이지 × 20 − 1, Page_Review 최댓값 정확히 20,000).
+          //   다시 실행해도 같은 자리에서 끝나므로, 재시도를 권하면 «사용자 시간을 태운다».
+          if (scrollFlags.usedApi && expectedTotal > 20000 && allReviews.length >= 19000) {
+            sendLog(`[안내] 네이버가 한 번에 내려주는 리뷰는 «최대 2만 건»입니다 — 이 상품은 그 상한에 걸렸습니다. 다시 실행해도 같은 수량에서 끝납니다.`, 'info');
+          }
           sendLog(`[안내] 잠시 후 다시 실행해 주세요.${scrollFlags.usedApi ? '' : " ('안정 수집' 체크박스를 체크하면 성공률이 올라갑니다)"}`, 'info');
         } else if (unverified) {
           // ★총계를 못 읽었으면 «성공 UX로 흘리지 않고» 검증 불가를 명시한다.
