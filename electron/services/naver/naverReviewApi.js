@@ -20,7 +20,14 @@
  *  - 오래 걸리는 일에서 «무음»은 그 자체로 결함이다 → 배치마다·대기마다 sendLog로 진행을 찍는다.
  */
 
-const QUERY_PAGES_URL_RE = /\/n\/v1\/contents\/reviews\/query-pages/;
+// ★「그룹상품」도 받는다 (2026-08-18 규명).
+//   여러 상품이 묶인 상품(브라운·베베숲 등)은 경로에 group-products가 «하나 더» 낀다:
+//     일반   POST /n/v1/contents/reviews/query-pages
+//     그룹상품 POST /n/v1/contents/reviews/group-products/query-pages
+//   본문 규약은 같다(page/pageSize/정렬 + JSON) → 같은 페이징 로직을 그대로 쓸 수 있다.
+//   이 한 줄을 안 받아서 그룹상품이 «전부» 느린 DOM 폴백으로 떨어졌고,
+//   리뷰가 많은 상품(⑧ 39,087건·⑩ 52,986건)은 3~8%만 받고 부분수집으로 끝났다.
+const QUERY_PAGES_URL_RE = /\/n\/v1\/contents\/reviews\/(?:group-products\/)?query-pages/;
 
 // 한 배치(evaluate 1회)의 상한 — protocolTimeout 180초 아래로 «항상» 유지하기 위한 값
 const BATCH_SOFT_DEADLINE_MS = 100000;
