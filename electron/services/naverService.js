@@ -11,7 +11,7 @@ import { attachReviewApiTemplate, collectReviewsViaApi } from './naver/naverRevi
 import { extractAllQnAs } from './naver/naverQnAExtractor.js';
 import { navigateToNextPage, hasNextPage, loadMoreReviews, getReviewCount, attachReviewTotalWatcher } from './naver/naverPagination.js';
 import { loadMoreQnAs, attachQnATotalWatcher } from './naver/naverQnAPagination.js';
-import { saveReviews, saveReviewsToExcelChunk } from '../../src/utils/naver/storage/index.js';
+import { saveReviews, saveReviewsToExcelChunk, createReviewKey } from '../../src/utils/naver/storage/index.js';
 import { getStorageDirectory, resetSessionFolderName, setSessionFolderPrefix } from '../../src/utils/naver/storage/common.js';
 import { formatQnAData } from '../../src/utils/naver/storage/qnaFormatter.js';
 
@@ -194,12 +194,31 @@ const CHUNK_SIZE_REVIEWS = 1000;
  *
  * @returns {Promise<{allReviews:Array, excelChunkCount:number, crawlError:Error|null, api:object|null}>}
  */
+// ★중복 제거는 «수집 시점»에 한 번 한다 (2026-08-18 지혜맥 e2e에서 발견).
+//   전에는 저장부(excelStorage/jsonStorage)가 «조용히» 중복을 지웠다.
+//   → 화면엔 수집분 565, 파일엔 저장분 562. 사용자에게 말한 숫자와 준 파일이 달랐다.
+//   ⇒ 여기서 걸러 두면 allReviews.length == 실제 저장 건수가 되고,
+//     청크 간 중복(엑셀은 청크별로만 걸러서 새던 것)도 같이 막힌다.
+function dropDuplicateReviews(list, seenKeys) {
+  const kept = [];
+  let dropped = 0;
+  for (const review of list) {
+    const key = createReviewKey(review);
+    if (seenKeys.has(key)) { dropped++; continue; }
+    seenKeys.add(key);
+    kept.push(review);
+  }
+  return { kept, dropped };
+}
+
 async function collectReviewsByApi(targetPage, opts) {
   const { template, targetCount, photoFolderPath, savePath, downloadImages, smallImage, imageMode, sendLog, flags, photoStats } = opts;
   const allReviews = [];
   let excelChunkCount = 0;
   let crawlError = null;
   let api = null;
+  const seenKeys = new Set();
+  let duplicateCount = 0;
 
   try {
     api = await collectReviewsViaApi(targetPage, { targetCount, template, sendLog, flags });
@@ -209,14 +228,18 @@ async function collectReviewsByApi(targetPage, opts) {
       const slice = api.rawReviews.slice(off, off + CHUNK_SIZE_REVIEWS);
       // ★DOM 경로와 «같은» 조립 함수 — 최종 객체 형태(엑셀 컬럼)가 두 경로에서 동일하다.
       //   indexOffset을 줘서 Page_Review 번호와 이미지 파일명이 청크 간에 겹치지 않게 한다.
-      const finalized = await finalizeReviews(slice, photoFolderPath, 1, { downloadImages, smallImage, imageMode, sendLog, indexOffset: off, photoStats });
+      const finalizedRaw = await finalizeReviews(slice, photoFolderPath, 1, { downloadImages, smallImage, imageMode, sendLog, indexOffset: off, photoStats });
+      // ★저장 «전»에 중복을 걸러 화면 숫자와 파일 건수를 일치시킨다.
+      const { kept: finalized, dropped } = dropDuplicateReviews(finalizedRaw, seenKeys);
+      duplicateCount += dropped;
+      if (finalized.length === 0) { chunkNum++; continue; }
 
       try {
         sendLog(`[진행] 청크 ${chunkNum} 저장 중 (${finalized.length}개)...`, 'info', true);
         const chunkPath = await saveReviewsToExcelChunk(finalized, 'naver_reviews', savePath, chunkNum);
         if (chunkPath) {
           console.log(`[NaverService] ✅ 청크 ${chunkNum} 저장 완료: ${chunkPath}`);
-          sendLog(`[완료] 청크 ${chunkNum} 저장 완료 (${finalized.length}개, 누적 ${off + finalized.length}개)`, 'success');
+          sendLog(`[완료] 청크 ${chunkNum} 저장 완료 (${finalized.length}개, 누적 ${allReviews.length + finalized.length}개)`, 'success');
           excelChunkCount++;
         }
       } catch (error) {
@@ -234,7 +257,7 @@ async function collectReviewsByApi(targetPage, opts) {
     if (flags && !flags.terminationReason) flags.terminationReason = 'api_exception';
   }
 
-  return { allReviews, excelChunkCount, crawlError, api };
+  return { allReviews, excelChunkCount, crawlError, api, duplicateCount };
 }
 
 /**
@@ -251,6 +274,8 @@ async function collectReviewsByScroll(targetPage, opts) {
   let crawlError = null;
   let prevCount = 0;
   let chunkNum = 1;
+  const seenKeys = new Set();
+  let duplicateCount = 0;
 
   // ★수집 루프는 통째로 try로 감싼다.
   //   loadMoreReviews / extractAllReviews가 예외를 던지면(실측 이력: detached Frame)
@@ -278,7 +303,7 @@ async function collectReviewsByScroll(targetPage, opts) {
       const roundPhotoStats = createPhotoStats();
       const all = await extractAllReviews(targetPage, photoFolderPath, 1, { downloadImages, smallImage, imageMode, sendLog, photoStats: roundPhotoStats });
       if (photoStats) Object.assign(photoStats, roundPhotoStats);
-      const newSlice = all.slice(prevCount);
+      let newSlice = all.slice(prevCount);   // ★아래에서 중복 제거로 재할당된다
       if (newSlice.length === 0) {
         // 진행 0 — 상한으로 끊긴 경우에 한해 «한 번» 더 이어붙인다. 두 번 연속 0이면 중단.
         zeroProgressStreak++;
@@ -292,13 +317,19 @@ async function collectReviewsByScroll(targetPage, opts) {
       }
       zeroProgressStreak = 0;
 
+      // ★저장 «전»에 중복을 걸러 화면 숫자와 파일 건수를 일치시킨다 (API 경로와 동일).
+      //   ⚠️prevCount는 «DOM에서 몇 개까지 읽었나»라 여기서 건드리지 않는다 — 다음 slice 기준점이다.
+      const dedup = dropDuplicateReviews(newSlice, seenKeys);
+      newSlice = dedup.kept;
+      duplicateCount += dedup.dropped;
+
       try {
         console.log(`[NaverService] 📦 청크 저장 (청크 ${chunkNum}, ${newSlice.length}개 리뷰)`);
         sendLog(`[진행] 청크 ${chunkNum} 저장 중 (${newSlice.length}개)...`, 'info', true);
-        const chunkPath = await saveReviewsToExcelChunk(newSlice, 'naver_reviews', savePath, chunkNum);
+        const chunkPath = newSlice.length ? await saveReviewsToExcelChunk(newSlice, 'naver_reviews', savePath, chunkNum) : null;
         if (chunkPath) {
           console.log(`[NaverService] ✅ 청크 ${chunkNum} 저장 완료: ${chunkPath}`);
-          sendLog(`[완료] 청크 ${chunkNum} 저장 완료 (${newSlice.length}개, 누적 ${prevCount + newSlice.length}개)`, 'success');
+          sendLog(`[완료] 청크 ${chunkNum} 저장 완료 (${newSlice.length}개, 누적 ${allReviews.length + newSlice.length}개)`, 'success');
           excelChunkCount++;
         }
       } catch (error) {
@@ -336,7 +367,7 @@ async function collectReviewsByScroll(targetPage, opts) {
     if (!flags.terminationReason) flags.terminationReason = 'exception';
   }
 
-  return { allReviews, excelChunkCount, crawlError };
+  return { allReviews, excelChunkCount, crawlError, duplicateCount };
 }
 
 /**
@@ -711,6 +742,7 @@ export async function handleNaver(browser, page, input, isUrl, collectionType = 
           downloadImages, smallImage, imageMode, sendLog, flags: scrollFlags, photoStats,
         };
         let excelChunkCount = 0;
+        let duplicateCount = 0;   // ★저장 전 걸러낸 중복 건수(사용자에게 밝힌다)
 
         if (apiTemplate) {
           // 템플릿을 확보했으면 감시자를 «즉시» 뗀다 — 안 그러면 우리가 보내는 수집 요청까지 되잡아
@@ -721,6 +753,7 @@ export async function handleNaver(browser, page, input, isUrl, collectionType = 
           allReviews = run.allReviews;
           excelChunkCount = run.excelChunkCount;
           crawlError = run.crawlError;
+          duplicateCount = run.duplicateCount || 0;
           // ★분모는 API 응답의 totalElements가 «가장 정확»하다 — 화면 파싱보다 우선한다.
           if (run.api && run.api.totalElements) {
             expectedTotal = run.api.totalElements;
@@ -735,6 +768,7 @@ export async function handleNaver(browser, page, input, isUrl, collectionType = 
           allReviews = run.allReviews;
           excelChunkCount = run.excelChunkCount;
           crawlError = run.crawlError;
+          duplicateCount = run.duplicateCount || 0;
         }
 
         // 총계 «늦은» 캡처 회수 — 모달 진입 시점에 못 잡았어도 수집 중 응답에서 잡혔을 수 있다.
@@ -762,7 +796,10 @@ export async function handleNaver(browser, page, input, isUrl, collectionType = 
         const expectedForRun = expectedTotal
           ? (originalTargetCount === Infinity ? expectedTotal : Math.min(expectedTotal, originalTargetCount))
           : null;
-        const shortfall = !!expectedForRun && allReviews.length < Math.floor(expectedForRun * 0.98);
+        // ★중복 제외분은 «못 받은 것»이 아니라 «지운 것»이라 분모에서 뺀다.
+        //   안 빼면 중복이 2%를 넘는 상품에서 정상 완주가 «부분수집»으로 오판된다.
+        const reachableTotal = expectedForRun != null ? expectedForRun - duplicateCount : null;
+        const shortfall = !!reachableTotal && allReviews.length < Math.floor(reachableTotal * 0.98);
         // ★0건 가드 — expectedTotal 파싱 성공 여부와 «무관하게» 0건은 성공이 아니다.
         //   (li 셀렉터와 본문 텍스트가 «동시에» 깨지면 '총 0개 추출' + 초록 완료가 나가던 구멍)
         const zeroYield = allReviews.length === 0;
@@ -775,9 +812,12 @@ export async function handleNaver(browser, page, input, isUrl, collectionType = 
         // ★API 경로는 «계약(totalElements) 대조»로 스스로 완주 여부를 안다 — 98% 허용치보다 이쪽이 엄격하다.
         partial = scrollFlags.endedByRateLimit || shortfall || zeroYield || unverified || apiIncomplete || !!crawlError;
         // ★사용자에게 나가는 수치는 «실제/기대치»를 항상 함께 (총계를 모르면 모른다고 쓴다)
+        // ★중복이 있었으면 «반드시 밝힌다» — 밝히지 않으면 분자(실제 저장)와 분모(총계)가
+        //   어긋난 채로 보여서 사용자가 "왜 3건이 비었나"를 스스로 알아내야 한다.
+        const dupText = duplicateCount > 0 ? ` (중복 ${duplicateCount.toLocaleString()}건 제외)` : '';
         yieldSummary = expectedForRun
-          ? `${allReviews.length.toLocaleString()}/${expectedForRun.toLocaleString()}건`
-          : `${allReviews.length.toLocaleString()}건 (총계 미확인)`;
+          ? `${allReviews.length.toLocaleString()}/${expectedForRun.toLocaleString()}건${dupText}`
+          : `${allReviews.length.toLocaleString()}건 (총계 미확인)${dupText}`;
 
         console.log(`[NaverService] ✅ 총 ${allReviews.length}개의 리뷰를 추출했습니다. (부분수집=${partial}, 검증불가=${unverified}, 0건=${zeroYield}, 총계=${expectedTotal ?? '미확인'}/${expectedTotalSource}, 종료사유=${scrollFlags.terminationReason})`);
         if (zeroYield) {
@@ -1197,6 +1237,7 @@ export async function handleNaver(browser, page, input, isUrl, collectionType = 
           downloadImages, smallImage, imageMode, sendLog, flags: scrollFlags, photoStats,
         };
         let excelChunkCount = 0;
+        let duplicateCount = 0;   // ★저장 전 걸러낸 중복 건수(사용자에게 밝힌다)
 
         if (apiTemplate) {
           // 템플릿을 확보했으면 감시자를 «즉시» 뗀다 — 안 그러면 우리가 보내는 수집 요청까지 되잡아
@@ -1207,6 +1248,7 @@ export async function handleNaver(browser, page, input, isUrl, collectionType = 
           allReviews = run.allReviews;
           excelChunkCount = run.excelChunkCount;
           crawlError = run.crawlError;
+          duplicateCount = run.duplicateCount || 0;
           // ★분모는 API 응답의 totalElements가 «가장 정확»하다 — 화면 파싱보다 우선한다.
           if (run.api && run.api.totalElements) {
             expectedTotal = run.api.totalElements;
@@ -1221,6 +1263,7 @@ export async function handleNaver(browser, page, input, isUrl, collectionType = 
           allReviews = run.allReviews;
           excelChunkCount = run.excelChunkCount;
           crawlError = run.crawlError;
+          duplicateCount = run.duplicateCount || 0;
         }
 
         // 총계 «늦은» 캡처 회수 — 모달 진입 시점에 못 잡았어도 수집 중 응답에서 잡혔을 수 있다.
@@ -1248,7 +1291,10 @@ export async function handleNaver(browser, page, input, isUrl, collectionType = 
         const expectedForRun = expectedTotal
           ? (originalTargetCount === Infinity ? expectedTotal : Math.min(expectedTotal, originalTargetCount))
           : null;
-        const shortfall = !!expectedForRun && allReviews.length < Math.floor(expectedForRun * 0.98);
+        // ★중복 제외분은 «못 받은 것»이 아니라 «지운 것»이라 분모에서 뺀다.
+        //   안 빼면 중복이 2%를 넘는 상품에서 정상 완주가 «부분수집»으로 오판된다.
+        const reachableTotal = expectedForRun != null ? expectedForRun - duplicateCount : null;
+        const shortfall = !!reachableTotal && allReviews.length < Math.floor(reachableTotal * 0.98);
         // ★0건 가드 — expectedTotal 파싱 성공 여부와 «무관하게» 0건은 성공이 아니다.
         //   (li 셀렉터와 본문 텍스트가 «동시에» 깨지면 '총 0개 추출' + 초록 완료가 나가던 구멍)
         const zeroYield = allReviews.length === 0;
@@ -1261,9 +1307,12 @@ export async function handleNaver(browser, page, input, isUrl, collectionType = 
         // ★API 경로는 «계약(totalElements) 대조»로 스스로 완주 여부를 안다 — 98% 허용치보다 이쪽이 엄격하다.
         partial = scrollFlags.endedByRateLimit || shortfall || zeroYield || unverified || apiIncomplete || !!crawlError;
         // ★사용자에게 나가는 수치는 «실제/기대치»를 항상 함께 (총계를 모르면 모른다고 쓴다)
+        // ★중복이 있었으면 «반드시 밝힌다» — 밝히지 않으면 분자(실제 저장)와 분모(총계)가
+        //   어긋난 채로 보여서 사용자가 "왜 3건이 비었나"를 스스로 알아내야 한다.
+        const dupText = duplicateCount > 0 ? ` (중복 ${duplicateCount.toLocaleString()}건 제외)` : '';
         yieldSummary = expectedForRun
-          ? `${allReviews.length.toLocaleString()}/${expectedForRun.toLocaleString()}건`
-          : `${allReviews.length.toLocaleString()}건 (총계 미확인)`;
+          ? `${allReviews.length.toLocaleString()}/${expectedForRun.toLocaleString()}건${dupText}`
+          : `${allReviews.length.toLocaleString()}건 (총계 미확인)${dupText}`;
 
         console.log(`[NaverService] ✅ 총 ${allReviews.length}개의 리뷰를 추출했습니다. (부분수집=${partial}, 검증불가=${unverified}, 0건=${zeroYield}, 총계=${expectedTotal ?? '미확인'}/${expectedTotalSource}, 종료사유=${scrollFlags.terminationReason})`);
         if (zeroYield) {
