@@ -111,8 +111,9 @@ function isUrl(input) {
  * @param {object} webContents - Electron webContents 객체 (로그 전송용)
  * @param {boolean} downloadImages - 리뷰 이미지 다운로드 여부 (기본 true)
  * @param {boolean} smallImage - 이미지 작게 받기 여부 (기본 false, true면 480px 작은 이미지 다운로드)
+ * @param {string} imageMode - UI가 고른 이미지 모드 원본값 (small|original|urls|off). 안내 문구 분기에만 쓴다.
  */
-export async function openUrlInBrowser(input, platform = 0, collectionType = 0, sort = 0, pages = 0, customPages = null, savePath = '', openFolder = false, excludeSecret = false, webContents = null, downloadImages = true, smallImage = false, enableDiagnostic = false, slowMode = true) {
+export async function openUrlInBrowser(input, platform = 0, collectionType = 0, sort = 0, pages = 0, customPages = null, savePath = '', openFolder = false, excludeSecret = false, webContents = null, downloadImages = true, smallImage = false, enableDiagnostic = false, slowMode = true, imageMode = '') {
   let browser = null;
   
   try {
@@ -317,7 +318,7 @@ export async function openUrlInBrowser(input, platform = 0, collectionType = 0, 
       result = await handleCoupang(browser, page, input, inputIsUrl, collectionType, sort, pages, customPages, savePath, excludeSecret, webContents);
     } else {
       // 네이버 플랫폼 처리 (기본값)
-      result = await handleNaver(browser, page, input, inputIsUrl, collectionType, sort, pages, customPages, savePath, excludeSecret, webContents, downloadImages, smallImage, enableDiagnostic, slowMode);
+      result = await handleNaver(browser, page, input, inputIsUrl, collectionType, sort, pages, customPages, savePath, excludeSecret, webContents, downloadImages, smallImage, enableDiagnostic, slowMode, imageMode);
     }
     
     // 크롤링 완료 후 폴더 열기
