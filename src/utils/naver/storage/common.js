@@ -21,10 +21,12 @@ const defaultConfig = {
 
 /**
  * 리뷰 데이터의 중복 키 생성
+ * ★export 하는 이유 — 수집부(naverService)가 «같은 키»로 수집 시점에 중복을 걸러야 한다.
+ *   저장부만 걸러내면 화면 숫자(수집분)와 파일 건수(저장분)가 어긋난다. (2026-08-18 실측: 565 vs 562)
  * @param {object} review - 리뷰 데이터 객체
  * @returns {string} 중복 체크용 키
  */
-function createReviewKey(review) {
+export function createReviewKey(review) {
   // 리뷰 데이터 구조인지 확인
   if (review['Reviewer Name'] !== undefined || review['Review Date'] !== undefined) {
     const reviewerName = review['Reviewer Name'] || '';

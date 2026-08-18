@@ -8,7 +8,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 // package.json에서 버전 정보 읽기
-let appVersion = 'v1.7.0';
+let appVersion = 'v1.7.2';
 try {
   const packageJson = JSON.parse(readFileSync(join(__dirname, 'package.json'), 'utf-8'));
   appVersion = `v${packageJson.version}`;
@@ -43,10 +43,10 @@ try {
     },
     
     // 브라우저에서 URL 열기 (플랫폼/수집타입/정렬/페이지 정보 포함)
-    openUrlInBrowser: async (url, platform = 0, collectionType = 0, sort = 0, pages = 0, customPages = null, savePath = '', openFolder = false, excludeSecret = false, downloadImages = true, smallImage = false, enableDiagnostic = false, slowMode = true) => {
-      console.log('[Preload] openUrlInBrowser called with URL:', url, 'Platform:', platform, 'CollectionType:', collectionType, 'Sort:', sort, 'Pages:', pages, 'CustomPages:', customPages, 'SavePath:', savePath, 'OpenFolder:', openFolder, 'ExcludeSecret:', excludeSecret, 'DownloadImages:', downloadImages, 'SmallImage:', smallImage, 'EnableDiagnostic:', enableDiagnostic, 'SlowMode:', slowMode);
+    openUrlInBrowser: async (url, platform = 0, collectionType = 0, sort = 0, pages = 0, customPages = null, savePath = '', openFolder = false, excludeSecret = false, downloadImages = true, smallImage = false, enableDiagnostic = false, slowMode = true, imageMode = '') => {
+      console.log('[Preload] openUrlInBrowser called with URL:', url, 'Platform:', platform, 'CollectionType:', collectionType, 'Sort:', sort, 'Pages:', pages, 'CustomPages:', customPages, 'SavePath:', savePath, 'OpenFolder:', openFolder, 'ExcludeSecret:', excludeSecret, 'DownloadImages:', downloadImages, 'SmallImage:', smallImage, 'EnableDiagnostic:', enableDiagnostic, 'SlowMode:', slowMode, 'ImageMode:', imageMode);
       try {
-        const result = await ipcRenderer.invoke('open-url-in-browser', url, platform, collectionType, sort, pages, customPages, savePath, openFolder, excludeSecret, downloadImages, smallImage, enableDiagnostic, slowMode);
+        const result = await ipcRenderer.invoke('open-url-in-browser', url, platform, collectionType, sort, pages, customPages, savePath, openFolder, excludeSecret, downloadImages, smallImage, enableDiagnostic, slowMode, imageMode);
         console.log('[Preload] openUrlInBrowser result:', result);
         return result;
       } catch (error) {

@@ -36,7 +36,11 @@ function formatDate(ts) {
  * API에서 받은 리뷰 객체 → 스토리지 스키마 변환
  * (네이버와 동일한 컬럼명 유지)
  */
-function convertToStorageFormat(apiReview, photoUrls) {
+function convertToStorageFormat(apiReview, savedPhotoPaths) {
+  // ★엑셀의 «사진수/사진주소» 칸 원천 — 다운로드 성공/실패와 «무관하게» 원본 URL을 남긴다.
+  const sourceUrls = (apiReview.attachments || [])
+    .map((a) => (a && (a.imgSrcThumbnail || a.imgSrcOrigin)) || '')
+    .filter(Boolean);
   return {
     'Review Score': String(apiReview.rating ?? ''),
     'Reviewer Name': apiReview.displayName || apiReview.member?.name || '이름 없음',
@@ -44,7 +48,8 @@ function convertToStorageFormat(apiReview, photoUrls) {
     'Product(Option) Name': apiReview.itemName || '정보 없음',
     'Review Type': '일반리뷰',
     'Content': apiReview.content || '내용 없음',
-    'Photos': photoUrls,
+    'Photos': savedPhotoPaths,
+    'PhotoUrls': sourceUrls,
   };
 }
 
@@ -431,8 +436,8 @@ export async function handleCoupang(browser, page, input, isUrl, collectionType 
       const pageReviews = [];
       for (let i = 0; i < apiResult.reviews.length; i++) {
         const apiReview = apiResult.reviews[i];
-        const photoUrls = await downloadPhotos(apiReview.attachments, photoFolderPath, currentPage, i);
-        pageReviews.push(convertToStorageFormat(apiReview, photoUrls));
+        const savedPhotoPaths = await downloadPhotos(apiReview.attachments, photoFolderPath, currentPage, i);
+        pageReviews.push(convertToStorageFormat(apiReview, savedPhotoPaths));
       }
 
       allReviews = allReviews.concat(pageReviews);

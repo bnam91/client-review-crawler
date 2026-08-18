@@ -9,6 +9,62 @@ import sharp from 'sharp';
 import { removeDuplicateReviews, getStorageDirectory } from './common.js';
 
 /**
+ * ★사진 열 배치 (v1.7.2) — 「사진(그림) / 사진수 / 사진주소」 3열.
+ *
+ * 왜 그림을 «H열 그대로» 두고 새 열을 오른쪽에 붙였나:
+ *  - 그림 삽입은 열 인덱스(col:7)와 그 열의 width(=87px 계산)에 «둘 다» 묶여 있다.
+ *    그림 열을 옮기면 인덱스·폭 계산·행 높이(75pt)를 전부 다시 맞춰야 하고, 어긋나면
+ *    「파일은 생겼는데 그림이 엉뚱한 칸에」가 된다(v1.7.0 사고와 같은 종류의 무증상 결함).
+ *  - 새 열을 «오른쪽 끝»에 붙이면 기존 좌표계가 그대로라 그림은 손댈 필요가 없고,
+ *    사진주소(긴 텍스트)도 맨 오른쪽이라 표를 읽는 데 방해가 안 된다.
+ *
+ * 열 인덱스(0-based): 7=사진(그림), 8=사진수, 9=사진주소
+ */
+const PHOTO_IMAGE_COL_LETTER = 'H';
+const PHOTO_IMAGE_COL_INDEX = 7; // ExcelJS addImage는 0-based
+// 사진주소 구분자 — 개행. 셀에 wrapText가 걸려 있어 한 줄에 하나씩 보인다.
+const PHOTO_URL_SEPARATOR = '\n';
+
+/**
+ * 값을 배열로 정규화 (배열 / 쉼표구분 문자열 / 빈 값 모두 허용)
+ * @param {any} value
+ * @returns {string[]}
+ */
+function toPathList(value) {
+  if (Array.isArray(value)) return value.filter((v) => typeof v === 'string' && v.trim() !== '');
+  if (typeof value === 'string' && value.trim() !== '') {
+    return value.split(',').map((p) => p.trim()).filter((p) => p);
+  }
+  return [];
+}
+
+/**
+ * 리뷰 한 건의 «사진 주소»(원본 URL)와 «사진 수»를 뽑는다.
+ *
+ * ★사진주소는 «다운로드 여부와 무관하게» 항상 남는다 — PhotoUrls는 추출 단계에서
+ *   원본 URL을 그대로 담아 두기 때문(이미지 OFF/주소만 모드에서도 채워진다).
+ * ★구버전/타 플랫폼 호환: PhotoUrls가 없으면 Photos에서 http(s)로 시작하는 항목만 주소로 인정한다
+ *   (Photos는 다운로드 성공 시 «로컬 경로»가 들어가므로 주소가 아니다).
+ *
+ * @param {object} review
+ * @returns {{urls: string[], count: number}} count = 이 리뷰가 «가진» 사진 수 (0 포함, 항상 채움)
+ */
+function getPhotoInfo(review) {
+  const urlsFromField = toPathList(review.PhotoUrls);
+  const photos = toPathList(review.Photos);
+
+  if (urlsFromField.length > 0) {
+    return { urls: urlsFromField, count: urlsFromField.length };
+  }
+  // PhotoUrls 자체가 «있는데 비었으면» 사진 0장이 확정이다 (추정하지 않는다).
+  if (review.PhotoUrls !== undefined && review.PhotoUrls !== null) {
+    return { urls: [], count: 0 };
+  }
+  const urlLike = photos.filter((p) => /^https?:\/\//i.test(p));
+  return { urls: urlLike, count: photos.length };
+}
+
+/**
  * 리뷰 이미지를 엑셀에 삽입
  * @param {ExcelJS.Worksheet} worksheet - 워크시트 객체
  * @param {object} review - 리뷰 데이터 객체
@@ -54,7 +110,7 @@ async function insertReviewImage(worksheet, review, rowIndex) {
         .toBuffer();
       
       // 셀 크기 기준 제한
-      const colWidthChars = worksheet.getColumn('H').width || 12;
+      const colWidthChars = worksheet.getColumn(PHOTO_IMAGE_COL_LETTER).width || 12;
       const maxCellWidthPx = Math.max(1, Math.floor(colWidthChars * 7 + 5));
       const maxCellHeightPx = Math.max(1, Math.floor(75 * 4 / 3));
       const targetPx = Math.max(1, Math.min(maxCellWidthPx - 2, maxCellHeightPx - 2));
@@ -72,7 +128,8 @@ async function insertReviewImage(worksheet, review, rowIndex) {
       });
       
       worksheet.addImage(imageId, {
-        tl: { col: 7, row: rowIndex - 1 }, // H열은 인덱스 7 (0부터 시작)
+        // ★열 인덱스는 상수로 고정 — 열이 늘어나도 «사진» 열을 벗어나지 않게 한 곳에서 관리한다.
+        tl: { col: PHOTO_IMAGE_COL_INDEX, row: rowIndex - 1 }, // H열 = 인덱스 7 (0부터 시작)
         ext: { width: targetPx, height: targetPx }
       });
       
@@ -130,7 +187,12 @@ export async function saveReviewsToExcel(reviews, filename = 'reviews', customPa
       { header: 'Product(Option) Name', key: 'Product(Option) Name', width: 25 },
       { header: 'Review Type', key: 'Review Type', width: 15 },
       { header: 'Content', key: 'Content', width: 60 },
-      { header: 'Photo', key: 'Photo', width: 12 }
+      // ★H열 = 그림 삽입 전용 (열 인덱스 7 고정, 87×87 계산이 이 width에 묶여 있다)
+      { header: '사진', key: 'Photo', width: 12 },
+      // ★사진수 = 항상 채운다(0 포함). 정렬·필터로 「사진 있는 리뷰만」 고르는 용도.
+      { header: '사진수', key: 'PhotoCount', width: 8 },
+      // ★사진주소 = 항상 채운다. 사진을 받든 안 받든 원본 URL은 남는다.
+      { header: '사진주소', key: 'PhotoUrls', width: 50 }
     ];
     
     worksheet.columns = columns;
@@ -168,6 +230,9 @@ export async function saveReviewsToExcel(reviews, filename = 'reviews', customPa
         }
       }
       
+      // 사진 정보 — 수/주소는 «다운로드 여부와 무관하게» 항상 기록한다.
+      const photoInfo = getPhotoInfo(review);
+
       const row = worksheet.addRow({
         'Page_Review': pageReview,
         'Review Score': review['Review Score'] || '',
@@ -176,7 +241,9 @@ export async function saveReviewsToExcel(reviews, filename = 'reviews', customPa
         'Product(Option) Name': review['Product(Option) Name'] || '',
         'Review Type': review['Review Type'] || '',
         'Content': review['Content'] || '',
-        'Photo': '' // 이미지는 별도로 삽입
+        'Photo': '', // 이미지는 별도로 삽입 (H열)
+        'PhotoCount': photoInfo.count, // ★숫자로 넣는다 — 정렬/필터가 되어야 하므로 문자열 금지
+        'PhotoUrls': photoInfo.urls.join(PHOTO_URL_SEPARATOR)
       });
       
       // 행 높이 설정 (75pt)

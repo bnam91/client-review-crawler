@@ -180,6 +180,7 @@ export async function extractAllReviews(page, photoFolderPath, currentPage = 1, 
  * @param {object} options
  * @param {boolean} options.downloadImages - 이미지 다운로드 여부 (기본 true)
  * @param {boolean} options.smallImage - 480px 작게 받기 (기본 false)
+ * @param {string} options.imageMode - UI 이미지 모드 원본값 (small|original|urls|off). ★안내 문구 분기 전용.
  * @param {Function} options.sendLog - sendLog(message, className, updateLast)
  * @param {number} options.indexOffset - 리뷰 «전역» 시작 인덱스. 나눠서 조립할 때 Page_Review 번호와
  *                                       이미지 파일명이 겹치지 않도록 한다 (기본 0 = 기존 동작 그대로).
@@ -188,7 +189,7 @@ export async function extractAllReviews(page, photoFolderPath, currentPage = 1, 
  * @returns {Promise<Array<object>>} 최종 리뷰 객체 배열 (★사진 실패는 이 배열을 실패로 만들지 않는다)
  */
 export async function finalizeReviews(rawReviews, photoFolderPath, currentPage = 1, options = {}) {
-  const { downloadImages = true, smallImage = false, sendLog = null, indexOffset = 0 } = options;
+  const { downloadImages = true, smallImage = false, imageMode = '', sendLog = null, indexOffset = 0 } = options;
   // ★사진 집계 — 호출자가 넘긴 누적기가 있으면 «실행 전체»로 합산된다(청크로 나눠 불려도 총계가 맞는다).
   const stats = options.photoStats || createPhotoStats();
 
@@ -205,8 +206,12 @@ export async function finalizeReviews(rawReviews, photoFolderPath, currentPage =
     if (smallImage) {
       sendLog?.(`[안내] 이미지 작게 받기 모드 (480px, 빠른 다운로드)`, 'info');
     }
+  } else if (imageMode === 'urls') {
+    // ★'주소만' 모드 — 파일은 받지 않지만 엑셀 «사진주소» 칸에 원본 URL이 들어간다.
+    //   (off와 다운로드 동작은 «같다». 다른 것은 사용자에게 알리는 문구뿐이다.)
+    sendLog?.(`[안내] 이미지 «주소만» 모드 — 사진 파일은 받지 않고, 엑셀 «사진주소» 칸에 원본 링크 ${totalPhotoCount}개를 기록합니다`, 'info');
   } else {
-    sendLog?.(`[안내] 이미지 다운로드 OFF — 메타만 저장`, 'info');
+    sendLog?.(`[안내] 이미지 다운로드 OFF — 메타만 저장 (엑셀 «사진수/사진주소» 칸은 그대로 채워집니다)`, 'info');
   }
 
   // ② 사진 다운로드 작업을 (reviewIdx, photoIdx, url) 평탄화 후 동시성 8 풀 처리
@@ -304,6 +309,9 @@ export async function finalizeReviews(rawReviews, photoFolderPath, currentPage =
       'Review Type': raw.reviewType,
       'Content': raw.content,
       'Photos': photos,
+      // ★원본 사진 URL — 다운로드 여부와 «무관하게» 항상 담는다.
+      //   엑셀의 «사진수/사진주소» 칸은 이 필드에서 나온다(이미지 OFF·주소만 모드에서도 채워진다).
+      'PhotoUrls': Array.isArray(raw.photoUrls) ? raw.photoUrls : [],
     });
   }
 

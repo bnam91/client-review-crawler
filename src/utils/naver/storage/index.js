@@ -8,7 +8,7 @@ import { saveReviewsToExcel, saveQnAToExcel } from './excelStorage.js';
 import { saveReviewsToMongoDB } from './mongodbStorage.js';
 
 // 공통 함수들도 export
-export { removeDuplicateReviews } from './common.js';
+export { removeDuplicateReviews, createReviewKey } from './common.js';
 
 /**
  * Excel만 청크 단위로 저장 (50페이지마다)

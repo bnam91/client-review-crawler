@@ -535,9 +535,12 @@ document.addEventListener('DOMContentLoaded', () => {
           const excludeSecret = excludeSecretCheckbox && excludeSecretCheckbox.classList.contains('checked');
           console.log(`[Renderer] 비밀글 제외 체크박스 상태: ${excludeSecret}`);
 
-          // 이미지 다운로드 체크박스 상태 확인 (리뷰 수집일 때 사용)
+          // 이미지 모드 (리뷰 수집일 때 사용)
+          //  small=작게 / original=원본 / urls=주소만(다운로드 안 함) / off=끄기
+          //  ★urls와 off는 «둘 다» 파일을 받지 않는다. 엑셀의 «사진주소» 칸은 두 모드 모두 채워진다.
+          //    (urls는 "주소는 남는다"를 사용자에게 명시하는 라벨이고, 실제 다운로드 동작은 off와 같다)
           const imageMode = imageModeSelect ? imageModeSelect.value : 'small';
-          const downloadImages = imageMode !== 'off';
+          const downloadImages = imageMode !== 'off' && imageMode !== 'urls';
           console.log(`[Renderer] 이미지 모드: ${imageMode} (downloadImages=${downloadImages})`);
 
           // 이미지 작게 받기 체크박스 상태 확인
@@ -560,7 +563,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
           addLog(`[브라우저] ${url}를 브라우저에서 엽니다...`);
           showStatusMessage('브라우저를 열고 있습니다...', 'info');
-          const result = await window.electronAPI.openUrlInBrowser(url, state.platform, state.collectionType, state.sort, state.pages, customPages, savePath, openFolder, excludeSecret, downloadImages, smallImage, enableDiagnostic, slowMode);
+          const result = await window.electronAPI.openUrlInBrowser(url, state.platform, state.collectionType, state.sort, state.pages, customPages, savePath, openFolder, excludeSecret, downloadImages, smallImage, enableDiagnostic, slowMode, imageMode);
           if (result.success) {
             addLog(`[브라우저] 브라우저에서 URL을 열었습니다.`);
             // 완료 문구는 «결과 기반»으로 여기서 1회만 낸다.

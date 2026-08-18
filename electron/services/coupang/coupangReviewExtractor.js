@@ -134,6 +134,8 @@ export async function extractSingleReview(reviewElement, photoFolderPath, curren
       'Review Type': '일반리뷰',
       'Content': data.content,
       'Photos': photos,
+      // ★엑셀의 «사진수/사진주소» 칸 원천 — 다운로드 여부와 무관하게 원본 URL을 남긴다.
+      'PhotoUrls': data.photoUrls,
     };
   } catch (e) {
     console.error(`[CoupangReviewExtractor] 리뷰 ${reviewIndex + 1} 추출 실패:`, e.message);
@@ -145,6 +147,7 @@ export async function extractSingleReview(reviewElement, photoFolderPath, curren
       'Review Type': '일반리뷰',
       'Content': '내용 없음',
       'Photos': [],
+      'PhotoUrls': [],
     };
   }
 }

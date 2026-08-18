@@ -10,8 +10,8 @@ import { extractAllReviews, finalizeReviews, createPhotoStats, topPhotoFailReaso
 import { attachReviewApiTemplate, collectReviewsViaApi } from './naver/naverReviewApi.js';
 import { extractAllQnAs } from './naver/naverQnAExtractor.js';
 import { navigateToNextPage, hasNextPage, loadMoreReviews, getReviewCount, attachReviewTotalWatcher } from './naver/naverPagination.js';
-import { loadMoreQnAs } from './naver/naverQnAPagination.js';
-import { saveReviews, saveReviewsToExcelChunk } from '../../src/utils/naver/storage/index.js';
+import { loadMoreQnAs, attachQnATotalWatcher } from './naver/naverQnAPagination.js';
+import { saveReviews, saveReviewsToExcelChunk, createReviewKey } from '../../src/utils/naver/storage/index.js';
 import { getStorageDirectory, resetSessionFolderName, setSessionFolderPrefix } from '../../src/utils/naver/storage/common.js';
 import { formatQnAData } from '../../src/utils/naver/storage/qnaFormatter.js';
 
@@ -111,6 +111,61 @@ async function readExpectedTotalReviews(targetPage, networkTotal = null) {
 }
 
 /**
+ * ★Q&A 수집량 «총계 대조» 판정 (v1.7.2) — 순수 함수라 브라우저 없이 node로 검증 가능.
+ *
+ * 왜 필요한가: 리뷰는 v1.7.0에서 총계(totalElements) 대조로 «조용히 덜 받고 완료» 를 막았는데
+ * Q&A는 그대로였다. Q&A도 /v1/qna/pages 응답에 totalElements가 있다(2026-08-18 실측: 485건).
+ * ⇒ 리뷰와 «같은 구조»를 이식한다. 새로 발명하지 않는다.
+ *
+ * 두 개의 손실 지점을 «구분»해서 본다:
+ *   ① 로딩 손실 = 무한 스크롤이 총계만큼 못 불러온 것   (loadedCount vs 총계)
+ *   ② 추출 손실 = 불러온 li를 추출에서 놓친 것          (savedCount vs loadedCount)
+ *   ★②는 «비밀글 제외»가 켜져 있으면 정상적인 감소다(사용자가 고른 필터) → 그때는 부분수집으로 보지 않는다.
+ *
+ * @param {object} p
+ * @param {number} p.loadedCount - 무한 스크롤이 모달에 올린 li 개수
+ * @param {number} p.savedCount - 실제로 추출/저장된 Q&A 개수
+ * @param {number|null} p.expectedTotal - 네트워크에서 잡은 총 Q&A 수 (null = 미확인)
+ * @param {number} p.targetCount - 이번 실행 목표 개수 (Infinity 가능)
+ * @param {boolean} p.excludeSecret - 비밀글 제외 옵션
+ * @param {string|null} p.terminationReason - 스크롤 종료 사유
+ * @param {boolean} p.endedByRateLimit
+ * @param {boolean} p.endedByNoContainer
+ * @param {boolean} p.crawlError - 로딩/추출이 «예외»로 끊겼는지 (수집분은 살리되 완료로 위장하지 않는다)
+ * @returns {{expectedForRun:number|null, shortfall:boolean, extractShortfall:boolean, zeroYield:boolean,
+ *            unverified:boolean, partial:boolean, collectFailed:boolean, yieldSummary:string}}
+ */
+export function judgeQnAYield(p = {}) {
+  const {
+    loadedCount = 0, savedCount = 0, expectedTotal = null, targetCount = Infinity,
+    excludeSecret = false, terminationReason = null,
+    endedByRateLimit = false, endedByNoContainer = false, crawlError = false,
+  } = p;
+
+  // ★expectedTotal이 0일 수 있다 (Q&A가 없는 상품) → truthy 검사 금지, null 검사로 판별한다.
+  const expectedForRun = expectedTotal == null
+    ? null
+    : (targetCount === Infinity ? expectedTotal : Math.min(expectedTotal, targetCount));
+
+  // ① 로딩 손실 — 리뷰와 동일한 98% 허용치
+  const shortfall = expectedForRun != null && expectedForRun > 0 && loadedCount < Math.floor(expectedForRun * 0.98);
+  // ② 추출 손실 — 비밀글 제외가 켜져 있으면 «정상 감소»라 판정에서 뺀다
+  const extractShortfall = !excludeSecret && loadedCount > 0 && savedCount < Math.floor(loadedCount * 0.98);
+  // 0건 — 단, 총계가 «0»이면 0건이 정답이다 (Q&A가 없는 상품). 총계를 모르면 0건은 실패로 본다.
+  const zeroYield = savedCount === 0 && (expectedForRun == null || expectedForRun > 0);
+  // 총계를 모르는데 상한/동결로 끝났으면 전량인지 «확인할 방법이 없다»
+  const unverified = expectedForRun == null && UNVERIFIABLE_TERMINATIONS.includes(terminationReason);
+
+  const partial = !!(endedByRateLimit || endedByNoContainer || shortfall || extractShortfall || zeroYield || unverified || crawlError);
+
+  const yieldSummary = expectedForRun != null
+    ? `${savedCount.toLocaleString()}/${expectedForRun.toLocaleString()}건`
+    : `${savedCount.toLocaleString()}건 (총계 미확인)`;
+
+  return { expectedForRun, shortfall, extractShortfall, zeroYield, unverified, partial, collectFailed: zeroYield, yieldSummary };
+}
+
+/**
  * 청크 루프에서 «이어받기»가 가능한 종료 사유인지.
  * max_duration / attempts_exhausted = 상한에 걸려 «끊긴» 것 → 리뷰가 끝난 게 아니다.
  */
@@ -139,12 +194,31 @@ const CHUNK_SIZE_REVIEWS = 1000;
  *
  * @returns {Promise<{allReviews:Array, excelChunkCount:number, crawlError:Error|null, api:object|null}>}
  */
+// ★중복 제거는 «수집 시점»에 한 번 한다 (2026-08-18 지혜맥 e2e에서 발견).
+//   전에는 저장부(excelStorage/jsonStorage)가 «조용히» 중복을 지웠다.
+//   → 화면엔 수집분 565, 파일엔 저장분 562. 사용자에게 말한 숫자와 준 파일이 달랐다.
+//   ⇒ 여기서 걸러 두면 allReviews.length == 실제 저장 건수가 되고,
+//     청크 간 중복(엑셀은 청크별로만 걸러서 새던 것)도 같이 막힌다.
+function dropDuplicateReviews(list, seenKeys) {
+  const kept = [];
+  let dropped = 0;
+  for (const review of list) {
+    const key = createReviewKey(review);
+    if (seenKeys.has(key)) { dropped++; continue; }
+    seenKeys.add(key);
+    kept.push(review);
+  }
+  return { kept, dropped };
+}
+
 async function collectReviewsByApi(targetPage, opts) {
-  const { template, targetCount, photoFolderPath, savePath, downloadImages, smallImage, sendLog, flags, photoStats } = opts;
+  const { template, targetCount, photoFolderPath, savePath, downloadImages, smallImage, imageMode, sendLog, flags, photoStats } = opts;
   const allReviews = [];
   let excelChunkCount = 0;
   let crawlError = null;
   let api = null;
+  const seenKeys = new Set();
+  let duplicateCount = 0;
 
   try {
     api = await collectReviewsViaApi(targetPage, { targetCount, template, sendLog, flags });
@@ -154,14 +228,18 @@ async function collectReviewsByApi(targetPage, opts) {
       const slice = api.rawReviews.slice(off, off + CHUNK_SIZE_REVIEWS);
       // ★DOM 경로와 «같은» 조립 함수 — 최종 객체 형태(엑셀 컬럼)가 두 경로에서 동일하다.
       //   indexOffset을 줘서 Page_Review 번호와 이미지 파일명이 청크 간에 겹치지 않게 한다.
-      const finalized = await finalizeReviews(slice, photoFolderPath, 1, { downloadImages, smallImage, sendLog, indexOffset: off, photoStats });
+      const finalizedRaw = await finalizeReviews(slice, photoFolderPath, 1, { downloadImages, smallImage, imageMode, sendLog, indexOffset: off, photoStats });
+      // ★저장 «전»에 중복을 걸러 화면 숫자와 파일 건수를 일치시킨다.
+      const { kept: finalized, dropped } = dropDuplicateReviews(finalizedRaw, seenKeys);
+      duplicateCount += dropped;
+      if (finalized.length === 0) { chunkNum++; continue; }
 
       try {
         sendLog(`[진행] 청크 ${chunkNum} 저장 중 (${finalized.length}개)...`, 'info', true);
         const chunkPath = await saveReviewsToExcelChunk(finalized, 'naver_reviews', savePath, chunkNum);
         if (chunkPath) {
           console.log(`[NaverService] ✅ 청크 ${chunkNum} 저장 완료: ${chunkPath}`);
-          sendLog(`[완료] 청크 ${chunkNum} 저장 완료 (${finalized.length}개, 누적 ${off + finalized.length}개)`, 'success');
+          sendLog(`[완료] 청크 ${chunkNum} 저장 완료 (${finalized.length}개, 누적 ${allReviews.length + finalized.length}개)`, 'success');
           excelChunkCount++;
         }
       } catch (error) {
@@ -179,7 +257,7 @@ async function collectReviewsByApi(targetPage, opts) {
     if (flags && !flags.terminationReason) flags.terminationReason = 'api_exception';
   }
 
-  return { allReviews, excelChunkCount, crawlError, api };
+  return { allReviews, excelChunkCount, crawlError, api, duplicateCount };
 }
 
 /**
@@ -189,13 +267,15 @@ async function collectReviewsByApi(targetPage, opts) {
  * @returns {Promise<{allReviews:Array, excelChunkCount:number, crawlError:Error|null}>}
  */
 async function collectReviewsByScroll(targetPage, opts) {
-  const { targetCount, photoFolderPath, savePath, downloadImages, smallImage, sendLog, flags, diagnostic, scrollWaitMs, photoStats } = opts;
+  const { targetCount, photoFolderPath, savePath, downloadImages, smallImage, imageMode, sendLog, flags, diagnostic, scrollWaitMs, photoStats } = opts;
   const originalTargetCount = targetCount; // Infinity 가능
   const allReviews = [];
   let excelChunkCount = 0;
   let crawlError = null;
   let prevCount = 0;
   let chunkNum = 1;
+  const seenKeys = new Set();
+  let duplicateCount = 0;
 
   // ★수집 루프는 통째로 try로 감싼다.
   //   loadMoreReviews / extractAllReviews가 예외를 던지면(실측 이력: detached Frame)
@@ -221,9 +301,9 @@ async function collectReviewsByScroll(targetPage, opts) {
       // ★사진 집계는 «회차마다 새로» 센다 — 이 경로는 청크마다 모달 «전체»를 다시 추출하므로
       //   누적하면 같은 사진을 청크 수만큼 중복으로 센다. 마지막 회차가 곧 전체 집계다.
       const roundPhotoStats = createPhotoStats();
-      const all = await extractAllReviews(targetPage, photoFolderPath, 1, { downloadImages, smallImage, sendLog, photoStats: roundPhotoStats });
+      const all = await extractAllReviews(targetPage, photoFolderPath, 1, { downloadImages, smallImage, imageMode, sendLog, photoStats: roundPhotoStats });
       if (photoStats) Object.assign(photoStats, roundPhotoStats);
-      const newSlice = all.slice(prevCount);
+      let newSlice = all.slice(prevCount);   // ★아래에서 중복 제거로 재할당된다
       if (newSlice.length === 0) {
         // 진행 0 — 상한으로 끊긴 경우에 한해 «한 번» 더 이어붙인다. 두 번 연속 0이면 중단.
         zeroProgressStreak++;
@@ -237,13 +317,19 @@ async function collectReviewsByScroll(targetPage, opts) {
       }
       zeroProgressStreak = 0;
 
+      // ★저장 «전»에 중복을 걸러 화면 숫자와 파일 건수를 일치시킨다 (API 경로와 동일).
+      //   ⚠️prevCount는 «DOM에서 몇 개까지 읽었나»라 여기서 건드리지 않는다 — 다음 slice 기준점이다.
+      const dedup = dropDuplicateReviews(newSlice, seenKeys);
+      newSlice = dedup.kept;
+      duplicateCount += dedup.dropped;
+
       try {
         console.log(`[NaverService] 📦 청크 저장 (청크 ${chunkNum}, ${newSlice.length}개 리뷰)`);
         sendLog(`[진행] 청크 ${chunkNum} 저장 중 (${newSlice.length}개)...`, 'info', true);
-        const chunkPath = await saveReviewsToExcelChunk(newSlice, 'naver_reviews', savePath, chunkNum);
+        const chunkPath = newSlice.length ? await saveReviewsToExcelChunk(newSlice, 'naver_reviews', savePath, chunkNum) : null;
         if (chunkPath) {
           console.log(`[NaverService] ✅ 청크 ${chunkNum} 저장 완료: ${chunkPath}`);
-          sendLog(`[완료] 청크 ${chunkNum} 저장 완료 (${newSlice.length}개, 누적 ${prevCount + newSlice.length}개)`, 'success');
+          sendLog(`[완료] 청크 ${chunkNum} 저장 완료 (${newSlice.length}개, 누적 ${allReviews.length + newSlice.length}개)`, 'success');
           excelChunkCount++;
         }
       } catch (error) {
@@ -281,7 +367,7 @@ async function collectReviewsByScroll(targetPage, opts) {
     if (!flags.terminationReason) flags.terminationReason = 'exception';
   }
 
-  return { allReviews, excelChunkCount, crawlError };
+  return { allReviews, excelChunkCount, crawlError, duplicateCount };
 }
 
 /**
@@ -297,8 +383,10 @@ async function collectReviewsByScroll(targetPage, opts) {
  * @param {string} savePath - 저장 경로 (선택)
  * @param {boolean} excludeSecret - 비밀글 제외 여부 (Q&A 수집일 때만 사용)
  * @param {object} webContents - Electron webContents 객체 (로그 전송용)
+ * @param {string} imageMode - UI가 고른 이미지 모드 (small|original|urls|off). ★안내 문구 분기 전용 —
+ *                             실제 다운로드 여부는 downloadImages가 결정한다(urls와 off는 둘 다 false).
  */
-export async function handleNaver(browser, page, input, isUrl, collectionType = 0, sort = 0, pages = 0, customPages = null, savePath = '', excludeSecret = false, webContents = null, downloadImages = true, smallImage = false, enableDiagnostic = false, slowMode = true) {
+export async function handleNaver(browser, page, input, isUrl, collectionType = 0, sort = 0, pages = 0, customPages = null, savePath = '', excludeSecret = false, webContents = null, downloadImages = true, smallImage = false, enableDiagnostic = false, slowMode = true, imageMode = '') {
 
   // 크롤링 속도 (2026-07-07 라이브 실측 근거) — 안정(3초)=네이버 속도제한 미발동·전량 수집 / 빠름(1.5초)=대형 상품 부분수집 위험
   const scrollWaitMs = slowMode ? 3000 : 1500;
@@ -441,6 +529,9 @@ export async function handleNaver(browser, page, input, isUrl, collectionType = 
       // ★리뷰 API 요청 템플릿 감시자 — 모달을 여는 순간 query-pages가 발사되므로 «탭 클릭 전»에 붙인다.
       //   (정렬은 모달을 연 «뒤»에 적용되므로 감시자는 마지막 요청을 유지한다 → 사용자가 고른 정렬이 반영된다)
       const apiWatcher = collectionType === 0 ? attachReviewApiTemplate(newPage) : null;
+      // ★Q&A 총건수 «네트워크» 감시자 — /v1/qna/pages도 모달을 여는 순간 발사되므로 «탭 클릭 전»에 붙인다.
+      //   (리뷰의 attachReviewTotalWatcher와 같은 구조)
+      const qnaTotalWatcher = collectionType === 1 ? attachQnATotalWatcher(newPage, { flags: scrollFlags }) : null;
 
       await clickReviewOrQnATab(newPage, collectionType, sort, sendLog);
 
@@ -488,15 +579,49 @@ export async function handleNaver(browser, page, input, isUrl, collectionType = 
 
         // 무한 스크롤로 모달 내 Q&A 로드
         sendLog(`[진행] 모달 무한 스크롤로 Q&A 로딩 중...`, 'info', true);
-        const finalCount = await loadMoreQnAs(newPage, targetCount, { flags: scrollFlags, sendLog, tuning: { scrollWaitMs } });
-        console.log(`[NaverService] 📊 모달 내 최종 Q&A 개수: ${finalCount} (종료 사유: ${scrollFlags.terminationReason})`);
-        // Q&A 부분수집 표기 — 총 Q&A 수 대조는 «미구현»이라 종료 사유만으로 판정한다(끝까지 봤다는 보장은 없음).
-        partial = !!(scrollFlags.endedByRateLimit || scrollFlags.endedByNoContainer
-          || scrollFlags.terminationReason === 'max_duration' || scrollFlags.terminationReason === 'attempts_exhausted');
-        sendLog(`[진행] 모달 내 ${finalCount}개 Q&A 로드 완료. 추출 시작...`, 'info', true);
+        // ★로딩+추출을 통째로 try로 감싼다 (리뷰 경로와 동일한 구조).
+        //   2026-08-18 실측: Q&A 스크롤 도중 'detached Frame' 예외가 나면 handleNaver 밖까지 그대로 튀어
+        //   총계 대조·저장·완료 문구가 «전부 증발»했다. 예외는 잡아서 «부분수집»으로 정직하게 마감한다.
+        let finalCount = 0;
+        let qnaTotal = null;
+        let qnaError = null;
+        try {
+          finalCount = await loadMoreQnAs(newPage, targetCount, { flags: scrollFlags, sendLog, tuning: { scrollWaitMs } });
+          console.log(`[NaverService] 📊 모달 내 최종 Q&A 개수: ${finalCount} (종료 사유: ${scrollFlags.terminationReason})`);
+        } catch (error) {
+          qnaError = error;
+          console.error(`[NaverService] ❌ Q&A 로딩 중 예외 — 부분수집으로 마감합니다: ${error && error.stack ? error.stack : error}`);
+          sendLog(`[경고] ⚠️ 수집 도중 네이버 페이지 연결이 끊겨 Q&A 로딩을 중단했습니다.`, 'warning');
+          if (!scrollFlags.terminationReason) scrollFlags.terminationReason = 'exception';
+        }
 
-        // 모달 내 모든 Q&A 추출
-        const pageQnAs = await extractAllQnAs(newPage, excludeSecret, { sendLog });
+        // ★총 Q&A 수 확보 (v1.7.2) — 출처는 /v1/qna/pages 응답의 totalElements «하나뿐»이다.
+        //   못 잡으면 «추정하지 않고» null로 두고 아래에서 «수집량 검증 불가»로 표기한다.
+        qnaTotal = qnaTotalWatcher
+          ? (qnaTotalWatcher.get() ?? scrollFlags.expectedQnATotalFromNetwork ?? null)
+          : null;
+        if (qnaTotalWatcher) qnaTotalWatcher.detach();
+        if (qnaTotal != null) {
+          expectedTotal = qnaTotal;
+          expectedTotalSource = 'network:qna/pages.totalElements';
+          console.log(`[NaverService] 📊 총 Q&A 수: ${qnaTotal} (출처: ${expectedTotalSource})`);
+          sendLog(`[정보] 이 상품의 총 Q&A 수: ${qnaTotal.toLocaleString()}건`, 'info');
+        } else {
+          console.log('[NaverService] ⚠️ 총 Q&A 수 미확인 — 수집량 «검증 불가» 상태로 진행합니다.');
+        }
+
+        let pageQnAs = [];
+        if (!qnaError) {
+          sendLog(`[진행] 모달 내 ${finalCount}개 Q&A 로드 완료. 추출 시작...`, 'info', true);
+          try {
+            // 모달 내 모든 Q&A 추출
+            pageQnAs = await extractAllQnAs(newPage, excludeSecret, { sendLog });
+          } catch (error) {
+            qnaError = error;
+            console.error(`[NaverService] ❌ Q&A 추출 중 예외 — 부분수집으로 마감합니다: ${error && error.stack ? error.stack : error}`);
+            sendLog(`[경고] ⚠️ Q&A 추출 도중 오류로 중단했습니다 — 지금까지 모은 분량만 저장합니다.`, 'warning');
+          }
+        }
         allQnAs = allQnAs.concat(pageQnAs);
         console.log(`[NaverService] ✅ ${pageQnAs.length}개 Q&A 추출`);
         sendLog(`[완료] ${pageQnAs.length}개 Q&A 추출`, 'success');
@@ -509,7 +634,63 @@ export async function handleNaver(browser, page, input, isUrl, collectionType = 
         }
 
         console.log(`[NaverService] ✅ 총 ${allQnAs.length}개의 Q&A를 추출했습니다.`);
-        sendLog(`[완료] 총 ${allQnAs.length}개의 Q&A를 추출했습니다.`, 'success');
+
+        // ★수집량 «총계 대조» (v1.7.2) — 리뷰와 같은 구조. 조용히 덜 받고 「완료」가 나가지 않게 한다.
+        const qnaJudge = judgeQnAYield({
+          loadedCount: finalCount,
+          savedCount: allQnAs.length,
+          expectedTotal: qnaTotal,
+          targetCount,
+          excludeSecret,
+          terminationReason: scrollFlags.terminationReason,
+          endedByRateLimit: !!scrollFlags.endedByRateLimit,
+          endedByNoContainer: !!scrollFlags.endedByNoContainer,
+          crawlError: !!qnaError,
+        });
+        partial = qnaJudge.partial;
+        unverified = qnaJudge.unverified;
+        collectFailed = qnaJudge.collectFailed;
+        yieldSummary = qnaJudge.yieldSummary;
+        // 예외로 끊긴 사실을 «분기 공용» 변수에 실어 진단 로그/반환값에도 남긴다
+        if (qnaError) crawlError = qnaError;
+
+        console.log(`[NaverService] Q&A 판정 — 부분수집=${partial}, 검증불가=${unverified}, 0건=${qnaJudge.zeroYield}, 로드=${finalCount}, 저장=${allQnAs.length}, 총계=${qnaTotal ?? '미확인'}, 종료사유=${scrollFlags.terminationReason}`);
+
+        if (qnaJudge.zeroYield) {
+          sendLog(`[오류] Q&A를 1건도 수집하지 못했습니다 — 수집 «실패»입니다. (종료 사유: ${scrollFlags.terminationReason || '미확인'})`, 'error');
+          sendLog(`[안내] 네이버 화면 구조 변경이나 일시적 차단일 수 있습니다. 잠시 후 다시 실행해 주세요.`, 'info');
+        } else if (partial) {
+          sendLog(`[완료] 부분수집: Q&A ${yieldSummary}`, 'warning');
+        } else {
+          sendLog(`[완료] Q&A ${yieldSummary}`, 'success');
+        }
+
+        if (scrollFlags.endedByRateLimit) {
+          sendLog(`[경고] ⚠️ 부분수집입니다 — 네이버 속도제한(429)으로 Q&A ${yieldSummary}에서 중단했습니다.`, 'warning');
+          sendLog(`[안내] '안정 수집' 체크박스를 체크한 뒤 잠시 후 다시 실행해 주세요.`, 'info');
+        } else if (qnaJudge.shortfall) {
+          sendLog(`[경고] ⚠️ 부분수집입니다 — 이 상품의 Q&A는 ${qnaTotal.toLocaleString()}건인데 ${finalCount.toLocaleString()}건만 불러왔습니다.`, 'warning');
+          sendLog(`[안내] 잠시 후 다시 실행해 주세요. ('안정 수집' 체크박스를 체크하면 성공률이 올라갑니다)`, 'info');
+        } else if (qnaJudge.extractShortfall) {
+          // 스크롤로는 불러왔는데 추출에서 빠진 경우 — 로딩 손실과 «구분»해서 알린다.
+          sendLog(`[경고] ⚠️ 부분수집입니다 — 화면에 ${finalCount.toLocaleString()}건을 불러왔는데 ${allQnAs.length.toLocaleString()}건만 저장되었습니다.`, 'warning');
+          sendLog(`[안내] 네이버 화면 구조 변경일 수 있습니다. 다시 실행해도 같으면 앱 업데이트를 확인해 주세요.`, 'info');
+        } else if (qnaError) {
+          sendLog(`[경고] ⚠️ 부분수집입니다 — 수집 도중 오류로 중단해 Q&A ${yieldSummary}까지만 저장되었습니다.`, 'warning');
+          sendLog(`[안내] 잠시 후 다시 실행해 주세요.`, 'info');
+        } else if (unverified) {
+          sendLog(`[경고] ⚠️ 수집량 «검증 불가» — 이 상품의 총 Q&A 수를 확인하지 못했습니다. ${allQnAs.length}건을 수집했지만 «전량인지 확인할 수 없습니다».`, 'warning');
+          sendLog(`[안내] 상품 페이지에 표시된 Q&A 수와 직접 비교해 주세요.`, 'info');
+        }
+
+        if (excludeSecret && qnaTotal != null) {
+          // 비밀글 제외는 «사용자가 고른» 감소다 — 부분수집이 아니라 정보로 알린다(수치는 항상 밝힌다).
+          sendLog(`[정보] '비밀글 제외'가 켜져 있어 총 ${qnaTotal.toLocaleString()}건 중 ${allQnAs.length.toLocaleString()}건이 저장되었습니다.`, 'info');
+        }
+
+        if (partial && scrollFlags.terminationReason) {
+          sendLog(`[정보] 중단 지점 코드: ${scrollFlags.terminationReason} — 문의 시 이 코드를 함께 알려주세요.`, 'info');
+        }
 
         // Q&A 데이터 저장
         if (allQnAs.length > 0) {
@@ -558,9 +739,10 @@ export async function handleNaver(browser, page, input, isUrl, collectionType = 
         const apiTemplate = apiWatcher ? apiWatcher.get() : null;
         const collectOpts = {
           targetCount: originalTargetCount, photoFolderPath, savePath,
-          downloadImages, smallImage, sendLog, flags: scrollFlags, photoStats,
+          downloadImages, smallImage, imageMode, sendLog, flags: scrollFlags, photoStats,
         };
         let excelChunkCount = 0;
+        let duplicateCount = 0;   // ★저장 전 걸러낸 중복 건수(사용자에게 밝힌다)
 
         if (apiTemplate) {
           // 템플릿을 확보했으면 감시자를 «즉시» 뗀다 — 안 그러면 우리가 보내는 수집 요청까지 되잡아
@@ -571,6 +753,7 @@ export async function handleNaver(browser, page, input, isUrl, collectionType = 
           allReviews = run.allReviews;
           excelChunkCount = run.excelChunkCount;
           crawlError = run.crawlError;
+          duplicateCount = run.duplicateCount || 0;
           // ★분모는 API 응답의 totalElements가 «가장 정확»하다 — 화면 파싱보다 우선한다.
           if (run.api && run.api.totalElements) {
             expectedTotal = run.api.totalElements;
@@ -585,6 +768,7 @@ export async function handleNaver(browser, page, input, isUrl, collectionType = 
           allReviews = run.allReviews;
           excelChunkCount = run.excelChunkCount;
           crawlError = run.crawlError;
+          duplicateCount = run.duplicateCount || 0;
         }
 
         // 총계 «늦은» 캡처 회수 — 모달 진입 시점에 못 잡았어도 수집 중 응답에서 잡혔을 수 있다.
@@ -612,7 +796,10 @@ export async function handleNaver(browser, page, input, isUrl, collectionType = 
         const expectedForRun = expectedTotal
           ? (originalTargetCount === Infinity ? expectedTotal : Math.min(expectedTotal, originalTargetCount))
           : null;
-        const shortfall = !!expectedForRun && allReviews.length < Math.floor(expectedForRun * 0.98);
+        // ★중복 제외분은 «못 받은 것»이 아니라 «지운 것»이라 분모에서 뺀다.
+        //   안 빼면 중복이 2%를 넘는 상품에서 정상 완주가 «부분수집»으로 오판된다.
+        const reachableTotal = expectedForRun != null ? expectedForRun - duplicateCount : null;
+        const shortfall = !!reachableTotal && allReviews.length < Math.floor(reachableTotal * 0.98);
         // ★0건 가드 — expectedTotal 파싱 성공 여부와 «무관하게» 0건은 성공이 아니다.
         //   (li 셀렉터와 본문 텍스트가 «동시에» 깨지면 '총 0개 추출' + 초록 완료가 나가던 구멍)
         const zeroYield = allReviews.length === 0;
@@ -625,9 +812,12 @@ export async function handleNaver(browser, page, input, isUrl, collectionType = 
         // ★API 경로는 «계약(totalElements) 대조»로 스스로 완주 여부를 안다 — 98% 허용치보다 이쪽이 엄격하다.
         partial = scrollFlags.endedByRateLimit || shortfall || zeroYield || unverified || apiIncomplete || !!crawlError;
         // ★사용자에게 나가는 수치는 «실제/기대치»를 항상 함께 (총계를 모르면 모른다고 쓴다)
+        // ★중복이 있었으면 «반드시 밝힌다» — 밝히지 않으면 분자(실제 저장)와 분모(총계)가
+        //   어긋난 채로 보여서 사용자가 "왜 3건이 비었나"를 스스로 알아내야 한다.
+        const dupText = duplicateCount > 0 ? ` (중복 ${duplicateCount.toLocaleString()}건 제외)` : '';
         yieldSummary = expectedForRun
-          ? `${allReviews.length.toLocaleString()}/${expectedForRun.toLocaleString()}건`
-          : `${allReviews.length.toLocaleString()}건 (총계 미확인)`;
+          ? `${allReviews.length.toLocaleString()}/${expectedForRun.toLocaleString()}건${dupText}`
+          : `${allReviews.length.toLocaleString()}건 (총계 미확인)${dupText}`;
 
         console.log(`[NaverService] ✅ 총 ${allReviews.length}개의 리뷰를 추출했습니다. (부분수집=${partial}, 검증불가=${unverified}, 0건=${zeroYield}, 총계=${expectedTotal ?? '미확인'}/${expectedTotalSource}, 종료사유=${scrollFlags.terminationReason})`);
         if (zeroYield) {
@@ -713,11 +903,12 @@ export async function handleNaver(browser, page, input, isUrl, collectionType = 
           : '';
         finalCountMessage = `리뷰 ${yieldSummary || `총 ${allReviews.length}개`}${photoText}`;
       } else if (collectionType === 1) {
-        finalCountMessage = `총 ${allQnAs.length}개 Q&A`;
+        // ★리뷰와 동일하게 «실제/총계»를 함께 적는다 (총계를 못 읽었으면 그 사실을 적는다)
+        finalCountMessage = `Q&A ${yieldSummary || `총 ${allQnAs.length}개`}`;
       }
       if (collectFailed) {
         // 0건은 '완료'가 아니다 — 초록 완료 문구를 내지 않는다.
-        sendLog(`[실패] 리뷰를 1건도 수집하지 못해 실패로 종료합니다. (${finalCountMessage})`, 'error');
+        sendLog(`[실패] ${collectionType === 1 ? 'Q&A' : '리뷰'}를 1건도 수집하지 못해 실패로 종료합니다. (${finalCountMessage})`, 'error');
       } else if (scrollFlags.endedByRateLimit) {
         sendLog(`[완료] 크롤링이 종료되었습니다. (${finalCountMessage} — ⚠️ 네이버 속도제한으로 인한 부분수집)`, 'warning');
       } else if (unverified) {
@@ -757,7 +948,7 @@ export async function handleNaver(browser, page, input, isUrl, collectionType = 
         success: !collectFailed,
         failedAt: collectFailed ? 'collect' : undefined,
         error: collectFailed
-          ? `리뷰를 1건도 수집하지 못했습니다. (종료 사유: ${scrollFlags.terminationReason || '미확인'})`
+          ? `${collectionType === 1 ? 'Q&A' : '리뷰'}를 1건도 수집하지 못했습니다. (종료 사유: ${scrollFlags.terminationReason || '미확인'})`
           : undefined,
         message: '상품 페이지로 이동하고 리뷰/Q&A 탭을 클릭했습니다.',
         isUrl: true,
@@ -833,6 +1024,9 @@ export async function handleNaver(browser, page, input, isUrl, collectionType = 
       const totalWatcher = collectionType === 0 ? attachReviewTotalWatcher(productPage, { flags: scrollFlags }) : null;
       // ★리뷰 API 요청 템플릿 감시자 — URL 분기와 동일하게 «탭 클릭 전»에 붙인다.
       const apiWatcher = collectionType === 0 ? attachReviewApiTemplate(productPage) : null;
+      // ★Q&A 총건수 «네트워크» 감시자 — /v1/qna/pages도 모달을 여는 순간 발사되므로 «탭 클릭 전»에 붙인다.
+      //   (리뷰의 attachReviewTotalWatcher와 같은 구조)
+      const qnaTotalWatcher = collectionType === 1 ? attachQnATotalWatcher(productPage, { flags: scrollFlags }) : null;
 
       await clickReviewOrQnATab(productPage, collectionType, sort, sendLog);
 
@@ -880,15 +1074,49 @@ export async function handleNaver(browser, page, input, isUrl, collectionType = 
 
         // 무한 스크롤로 모달 내 Q&A 로드
         sendLog(`[진행] 모달 무한 스크롤로 Q&A 로딩 중...`, 'info', true);
-        const finalCount = await loadMoreQnAs(productPage, targetCount, { flags: scrollFlags, sendLog, tuning: { scrollWaitMs } });
-        console.log(`[NaverService] 📊 모달 내 최종 Q&A 개수: ${finalCount} (종료 사유: ${scrollFlags.terminationReason})`);
-        // Q&A 부분수집 표기 — 총 Q&A 수 대조는 «미구현»이라 종료 사유만으로 판정한다(끝까지 봤다는 보장은 없음).
-        partial = !!(scrollFlags.endedByRateLimit || scrollFlags.endedByNoContainer
-          || scrollFlags.terminationReason === 'max_duration' || scrollFlags.terminationReason === 'attempts_exhausted');
-        sendLog(`[진행] 모달 내 ${finalCount}개 Q&A 로드 완료. 추출 시작...`, 'info', true);
+        // ★로딩+추출을 통째로 try로 감싼다 (리뷰 경로와 동일한 구조).
+        //   2026-08-18 실측: Q&A 스크롤 도중 'detached Frame' 예외가 나면 handleNaver 밖까지 그대로 튀어
+        //   총계 대조·저장·완료 문구가 «전부 증발»했다. 예외는 잡아서 «부분수집»으로 정직하게 마감한다.
+        let finalCount = 0;
+        let qnaTotal = null;
+        let qnaError = null;
+        try {
+          finalCount = await loadMoreQnAs(productPage, targetCount, { flags: scrollFlags, sendLog, tuning: { scrollWaitMs } });
+          console.log(`[NaverService] 📊 모달 내 최종 Q&A 개수: ${finalCount} (종료 사유: ${scrollFlags.terminationReason})`);
+        } catch (error) {
+          qnaError = error;
+          console.error(`[NaverService] ❌ Q&A 로딩 중 예외 — 부분수집으로 마감합니다: ${error && error.stack ? error.stack : error}`);
+          sendLog(`[경고] ⚠️ 수집 도중 네이버 페이지 연결이 끊겨 Q&A 로딩을 중단했습니다.`, 'warning');
+          if (!scrollFlags.terminationReason) scrollFlags.terminationReason = 'exception';
+        }
 
-        // 모달 내 모든 Q&A 추출
-        const pageQnAs = await extractAllQnAs(productPage, excludeSecret, { sendLog });
+        // ★총 Q&A 수 확보 (v1.7.2) — 출처는 /v1/qna/pages 응답의 totalElements «하나뿐»이다.
+        //   못 잡으면 «추정하지 않고» null로 두고 아래에서 «수집량 검증 불가»로 표기한다.
+        qnaTotal = qnaTotalWatcher
+          ? (qnaTotalWatcher.get() ?? scrollFlags.expectedQnATotalFromNetwork ?? null)
+          : null;
+        if (qnaTotalWatcher) qnaTotalWatcher.detach();
+        if (qnaTotal != null) {
+          expectedTotal = qnaTotal;
+          expectedTotalSource = 'network:qna/pages.totalElements';
+          console.log(`[NaverService] 📊 총 Q&A 수: ${qnaTotal} (출처: ${expectedTotalSource})`);
+          sendLog(`[정보] 이 상품의 총 Q&A 수: ${qnaTotal.toLocaleString()}건`, 'info');
+        } else {
+          console.log('[NaverService] ⚠️ 총 Q&A 수 미확인 — 수집량 «검증 불가» 상태로 진행합니다.');
+        }
+
+        let pageQnAs = [];
+        if (!qnaError) {
+          sendLog(`[진행] 모달 내 ${finalCount}개 Q&A 로드 완료. 추출 시작...`, 'info', true);
+          try {
+            // 모달 내 모든 Q&A 추출
+            pageQnAs = await extractAllQnAs(productPage, excludeSecret, { sendLog });
+          } catch (error) {
+            qnaError = error;
+            console.error(`[NaverService] ❌ Q&A 추출 중 예외 — 부분수집으로 마감합니다: ${error && error.stack ? error.stack : error}`);
+            sendLog(`[경고] ⚠️ Q&A 추출 도중 오류로 중단했습니다 — 지금까지 모은 분량만 저장합니다.`, 'warning');
+          }
+        }
         allQnAs = allQnAs.concat(pageQnAs);
         console.log(`[NaverService] ✅ ${pageQnAs.length}개 Q&A 추출`);
         sendLog(`[완료] ${pageQnAs.length}개 Q&A 추출`, 'success');
@@ -901,7 +1129,63 @@ export async function handleNaver(browser, page, input, isUrl, collectionType = 
         }
 
         console.log(`[NaverService] ✅ 총 ${allQnAs.length}개의 Q&A를 추출했습니다.`);
-        sendLog(`[완료] 총 ${allQnAs.length}개의 Q&A를 추출했습니다.`, 'success');
+
+        // ★수집량 «총계 대조» (v1.7.2) — 리뷰와 같은 구조. 조용히 덜 받고 「완료」가 나가지 않게 한다.
+        const qnaJudge = judgeQnAYield({
+          loadedCount: finalCount,
+          savedCount: allQnAs.length,
+          expectedTotal: qnaTotal,
+          targetCount,
+          excludeSecret,
+          terminationReason: scrollFlags.terminationReason,
+          endedByRateLimit: !!scrollFlags.endedByRateLimit,
+          endedByNoContainer: !!scrollFlags.endedByNoContainer,
+          crawlError: !!qnaError,
+        });
+        partial = qnaJudge.partial;
+        unverified = qnaJudge.unverified;
+        collectFailed = qnaJudge.collectFailed;
+        yieldSummary = qnaJudge.yieldSummary;
+        // 예외로 끊긴 사실을 «분기 공용» 변수에 실어 진단 로그/반환값에도 남긴다
+        if (qnaError) crawlError = qnaError;
+
+        console.log(`[NaverService] Q&A 판정 — 부분수집=${partial}, 검증불가=${unverified}, 0건=${qnaJudge.zeroYield}, 로드=${finalCount}, 저장=${allQnAs.length}, 총계=${qnaTotal ?? '미확인'}, 종료사유=${scrollFlags.terminationReason}`);
+
+        if (qnaJudge.zeroYield) {
+          sendLog(`[오류] Q&A를 1건도 수집하지 못했습니다 — 수집 «실패»입니다. (종료 사유: ${scrollFlags.terminationReason || '미확인'})`, 'error');
+          sendLog(`[안내] 네이버 화면 구조 변경이나 일시적 차단일 수 있습니다. 잠시 후 다시 실행해 주세요.`, 'info');
+        } else if (partial) {
+          sendLog(`[완료] 부분수집: Q&A ${yieldSummary}`, 'warning');
+        } else {
+          sendLog(`[완료] Q&A ${yieldSummary}`, 'success');
+        }
+
+        if (scrollFlags.endedByRateLimit) {
+          sendLog(`[경고] ⚠️ 부분수집입니다 — 네이버 속도제한(429)으로 Q&A ${yieldSummary}에서 중단했습니다.`, 'warning');
+          sendLog(`[안내] '안정 수집' 체크박스를 체크한 뒤 잠시 후 다시 실행해 주세요.`, 'info');
+        } else if (qnaJudge.shortfall) {
+          sendLog(`[경고] ⚠️ 부분수집입니다 — 이 상품의 Q&A는 ${qnaTotal.toLocaleString()}건인데 ${finalCount.toLocaleString()}건만 불러왔습니다.`, 'warning');
+          sendLog(`[안내] 잠시 후 다시 실행해 주세요. ('안정 수집' 체크박스를 체크하면 성공률이 올라갑니다)`, 'info');
+        } else if (qnaJudge.extractShortfall) {
+          // 스크롤로는 불러왔는데 추출에서 빠진 경우 — 로딩 손실과 «구분»해서 알린다.
+          sendLog(`[경고] ⚠️ 부분수집입니다 — 화면에 ${finalCount.toLocaleString()}건을 불러왔는데 ${allQnAs.length.toLocaleString()}건만 저장되었습니다.`, 'warning');
+          sendLog(`[안내] 네이버 화면 구조 변경일 수 있습니다. 다시 실행해도 같으면 앱 업데이트를 확인해 주세요.`, 'info');
+        } else if (qnaError) {
+          sendLog(`[경고] ⚠️ 부분수집입니다 — 수집 도중 오류로 중단해 Q&A ${yieldSummary}까지만 저장되었습니다.`, 'warning');
+          sendLog(`[안내] 잠시 후 다시 실행해 주세요.`, 'info');
+        } else if (unverified) {
+          sendLog(`[경고] ⚠️ 수집량 «검증 불가» — 이 상품의 총 Q&A 수를 확인하지 못했습니다. ${allQnAs.length}건을 수집했지만 «전량인지 확인할 수 없습니다».`, 'warning');
+          sendLog(`[안내] 상품 페이지에 표시된 Q&A 수와 직접 비교해 주세요.`, 'info');
+        }
+
+        if (excludeSecret && qnaTotal != null) {
+          // 비밀글 제외는 «사용자가 고른» 감소다 — 부분수집이 아니라 정보로 알린다(수치는 항상 밝힌다).
+          sendLog(`[정보] '비밀글 제외'가 켜져 있어 총 ${qnaTotal.toLocaleString()}건 중 ${allQnAs.length.toLocaleString()}건이 저장되었습니다.`, 'info');
+        }
+
+        if (partial && scrollFlags.terminationReason) {
+          sendLog(`[정보] 중단 지점 코드: ${scrollFlags.terminationReason} — 문의 시 이 코드를 함께 알려주세요.`, 'info');
+        }
 
         // Q&A 데이터 저장
         if (allQnAs.length > 0) {
@@ -950,9 +1234,10 @@ export async function handleNaver(browser, page, input, isUrl, collectionType = 
         const apiTemplate = apiWatcher ? apiWatcher.get() : null;
         const collectOpts = {
           targetCount: originalTargetCount, photoFolderPath, savePath,
-          downloadImages, smallImage, sendLog, flags: scrollFlags, photoStats,
+          downloadImages, smallImage, imageMode, sendLog, flags: scrollFlags, photoStats,
         };
         let excelChunkCount = 0;
+        let duplicateCount = 0;   // ★저장 전 걸러낸 중복 건수(사용자에게 밝힌다)
 
         if (apiTemplate) {
           // 템플릿을 확보했으면 감시자를 «즉시» 뗀다 — 안 그러면 우리가 보내는 수집 요청까지 되잡아
@@ -963,6 +1248,7 @@ export async function handleNaver(browser, page, input, isUrl, collectionType = 
           allReviews = run.allReviews;
           excelChunkCount = run.excelChunkCount;
           crawlError = run.crawlError;
+          duplicateCount = run.duplicateCount || 0;
           // ★분모는 API 응답의 totalElements가 «가장 정확»하다 — 화면 파싱보다 우선한다.
           if (run.api && run.api.totalElements) {
             expectedTotal = run.api.totalElements;
@@ -977,6 +1263,7 @@ export async function handleNaver(browser, page, input, isUrl, collectionType = 
           allReviews = run.allReviews;
           excelChunkCount = run.excelChunkCount;
           crawlError = run.crawlError;
+          duplicateCount = run.duplicateCount || 0;
         }
 
         // 총계 «늦은» 캡처 회수 — 모달 진입 시점에 못 잡았어도 수집 중 응답에서 잡혔을 수 있다.
@@ -1004,7 +1291,10 @@ export async function handleNaver(browser, page, input, isUrl, collectionType = 
         const expectedForRun = expectedTotal
           ? (originalTargetCount === Infinity ? expectedTotal : Math.min(expectedTotal, originalTargetCount))
           : null;
-        const shortfall = !!expectedForRun && allReviews.length < Math.floor(expectedForRun * 0.98);
+        // ★중복 제외분은 «못 받은 것»이 아니라 «지운 것»이라 분모에서 뺀다.
+        //   안 빼면 중복이 2%를 넘는 상품에서 정상 완주가 «부분수집»으로 오판된다.
+        const reachableTotal = expectedForRun != null ? expectedForRun - duplicateCount : null;
+        const shortfall = !!reachableTotal && allReviews.length < Math.floor(reachableTotal * 0.98);
         // ★0건 가드 — expectedTotal 파싱 성공 여부와 «무관하게» 0건은 성공이 아니다.
         //   (li 셀렉터와 본문 텍스트가 «동시에» 깨지면 '총 0개 추출' + 초록 완료가 나가던 구멍)
         const zeroYield = allReviews.length === 0;
@@ -1017,9 +1307,12 @@ export async function handleNaver(browser, page, input, isUrl, collectionType = 
         // ★API 경로는 «계약(totalElements) 대조»로 스스로 완주 여부를 안다 — 98% 허용치보다 이쪽이 엄격하다.
         partial = scrollFlags.endedByRateLimit || shortfall || zeroYield || unverified || apiIncomplete || !!crawlError;
         // ★사용자에게 나가는 수치는 «실제/기대치»를 항상 함께 (총계를 모르면 모른다고 쓴다)
+        // ★중복이 있었으면 «반드시 밝힌다» — 밝히지 않으면 분자(실제 저장)와 분모(총계)가
+        //   어긋난 채로 보여서 사용자가 "왜 3건이 비었나"를 스스로 알아내야 한다.
+        const dupText = duplicateCount > 0 ? ` (중복 ${duplicateCount.toLocaleString()}건 제외)` : '';
         yieldSummary = expectedForRun
-          ? `${allReviews.length.toLocaleString()}/${expectedForRun.toLocaleString()}건`
-          : `${allReviews.length.toLocaleString()}건 (총계 미확인)`;
+          ? `${allReviews.length.toLocaleString()}/${expectedForRun.toLocaleString()}건${dupText}`
+          : `${allReviews.length.toLocaleString()}건 (총계 미확인)${dupText}`;
 
         console.log(`[NaverService] ✅ 총 ${allReviews.length}개의 리뷰를 추출했습니다. (부분수집=${partial}, 검증불가=${unverified}, 0건=${zeroYield}, 총계=${expectedTotal ?? '미확인'}/${expectedTotalSource}, 종료사유=${scrollFlags.terminationReason})`);
         if (zeroYield) {
@@ -1105,11 +1398,12 @@ export async function handleNaver(browser, page, input, isUrl, collectionType = 
           : '';
         finalCountMessage = `리뷰 ${yieldSummary || `총 ${allReviews.length}개`}${photoText}`;
       } else if (collectionType === 1) {
-        finalCountMessage = `총 ${allQnAs.length}개 Q&A`;
+        // ★리뷰와 동일하게 «실제/총계»를 함께 적는다 (총계를 못 읽었으면 그 사실을 적는다)
+        finalCountMessage = `Q&A ${yieldSummary || `총 ${allQnAs.length}개`}`;
       }
       if (collectFailed) {
         // 0건은 '완료'가 아니다 — 초록 완료 문구를 내지 않는다.
-        sendLog(`[실패] 리뷰를 1건도 수집하지 못해 실패로 종료합니다. (${finalCountMessage})`, 'error');
+        sendLog(`[실패] ${collectionType === 1 ? 'Q&A' : '리뷰'}를 1건도 수집하지 못해 실패로 종료합니다. (${finalCountMessage})`, 'error');
       } else if (scrollFlags.endedByRateLimit) {
         sendLog(`[완료] 크롤링이 종료되었습니다. (${finalCountMessage} — ⚠️ 네이버 속도제한으로 인한 부분수집)`, 'warning');
       } else if (unverified) {
@@ -1149,7 +1443,7 @@ export async function handleNaver(browser, page, input, isUrl, collectionType = 
         success: !collectFailed,
         failedAt: collectFailed ? 'collect' : undefined,
         error: collectFailed
-          ? `리뷰를 1건도 수집하지 못했습니다. (종료 사유: ${scrollFlags.terminationReason || '미확인'})`
+          ? `${collectionType === 1 ? 'Q&A' : '리뷰'}를 1건도 수집하지 못했습니다. (종료 사유: ${scrollFlags.terminationReason || '미확인'})`
           : undefined,
         message: '상품 페이지로 이동하고 리뷰/Q&A 탭을 클릭했습니다.',
         isUrl: false,

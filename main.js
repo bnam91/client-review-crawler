@@ -198,10 +198,10 @@ app.whenReady().then(() => {
   });
 
   // 브라우저에서 URL 열기 핸들러 (플랫폼/수집타입/정렬/페이지 포함)
-  ipcMain.handle('open-url-in-browser', async (event, url, platform = 0, collectionType = 0, sort = 0, pages = 0, customPages = null, savePath = '', openFolder = false, excludeSecret = false, downloadImages = true, smallImage = false, enableDiagnostic = false, slowMode = true) => {
-    console.log('[Main] open-url-in-browser IPC handler called with URL:', url, 'Platform:', platform, 'CollectionType:', collectionType, 'Sort:', sort, 'Pages:', pages, 'CustomPages:', customPages, 'SavePath:', savePath, 'OpenFolder:', openFolder, 'ExcludeSecret:', excludeSecret, 'DownloadImages:', downloadImages, 'SmallImage:', smallImage, 'EnableDiagnostic:', enableDiagnostic, 'SlowMode:', slowMode);
+  ipcMain.handle('open-url-in-browser', async (event, url, platform = 0, collectionType = 0, sort = 0, pages = 0, customPages = null, savePath = '', openFolder = false, excludeSecret = false, downloadImages = true, smallImage = false, enableDiagnostic = false, slowMode = true, imageMode = '') => {
+    console.log('[Main] open-url-in-browser IPC handler called with URL:', url, 'Platform:', platform, 'CollectionType:', collectionType, 'Sort:', sort, 'Pages:', pages, 'CustomPages:', customPages, 'SavePath:', savePath, 'OpenFolder:', openFolder, 'ExcludeSecret:', excludeSecret, 'DownloadImages:', downloadImages, 'SmallImage:', smallImage, 'EnableDiagnostic:', enableDiagnostic, 'SlowMode:', slowMode, 'ImageMode:', imageMode);
     try {
-      const result = await openUrlInBrowser(url, platform, collectionType, sort, pages, customPages, savePath, openFolder, excludeSecret, event.sender, downloadImages, smallImage, enableDiagnostic, slowMode);
+      const result = await openUrlInBrowser(url, platform, collectionType, sort, pages, customPages, savePath, openFolder, excludeSecret, event.sender, downloadImages, smallImage, enableDiagnostic, slowMode, imageMode);
       console.log('[Main] Browser service result:', result);
       return result;
     } catch (error) {

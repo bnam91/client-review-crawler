@@ -12,6 +12,76 @@
 import { QNA } from './naverSelectors.js';
 
 /**
+ * Q&A «총건수» 응답 URL 판별 정규식.
+ *
+ * ★2026-08-18 라이브 실측 (brand.naver.com/frankliin/products/10422056773):
+ *   Q&A 모달을 여는 순간
+ *     GET https://brand.naver.com/n/v1/qna/pages?page=1&pageSize=20&isMyQna=false
+ *         &qnaStatus=ALL&excludeSecret=false&channelProductNo=...&channelNo=...
+ *       → {qnaList:[20], page:1, size:20, totalElements:485, totalPages:25}
+ *   스크롤로 다음 묶음을 받을 때도 같은 엔드포인트에 page만 바뀌어 나가고 totalElements는 485로 고정.
+ *
+ * ⇒ 리뷰의 query-pages(totalElements)와 «같은 구조»다. 화면 텍스트 파싱이 필요 없다.
+ * ⚠️ excludeSecret 파라미터에 따라 총건수가 달라질 수 있으므로 «첫» 응답(=스크롤 루프가 실제로 읽는
+ *    목록과 같은 조건)만 총계로 채택한다. 뒤늦게 조건이 바뀐 응답으로 분모를 갈아치우지 않는다.
+ */
+export const QNA_TOTAL_URL_RE = /\/v1\/qna\/pages/;
+
+/**
+ * Q&A API 응답에서 총건수를 뽑는다. (순수 함수 — 브라우저 없이 node로 검증 가능)
+ * @param {string} url  응답 URL
+ * @param {any} json    파싱된 응답 본문
+ * @returns {number|null} 실패/비대상이면 null = "미확인" (절대 추정하지 않는다)
+ */
+export function pickQnATotalFromResponse(url, json) {
+  if (typeof url !== 'string' || !QNA_TOTAL_URL_RE.test(url)) return null;
+  if (!json || typeof json !== 'object' || Array.isArray(json)) return null;
+  // qnaList가 있는 응답만 «목록» 응답으로 인정한다 (다른 qna 엔드포인트의 totalElements 오채택 방지 —
+  // 리뷰에서 gallery-attaches의 totalElements를 총 리뷰 수로 오인했던 사고와 같은 종류).
+  if (!Array.isArray(json.qnaList)) return null;
+  const n = json.totalElements;
+  if (typeof n !== 'number' || !Number.isFinite(n) || n < 0) return null;
+  return Math.floor(n);
+}
+
+/**
+ * Q&A 총건수 «네트워크» 감시자 — 리뷰의 attachReviewTotalWatcher와 «같은 구조»다.
+ *
+ * ★모달을 여는 순간 /v1/qna/pages가 발사되므로 «모달 진입 전»에 붙여야 한다.
+ * @param {object} page
+ * @param {object} options - flags: 캡처값을 올려둘 공유 객체 / onCapture: 1회 콜백
+ * @returns {{get:()=>number|null, detach:()=>void}}
+ */
+export function attachQnATotalWatcher(page, options = {}) {
+  const { flags = null, onCapture = null } = options;
+  let total = null;
+  const onResponse = (res) => {
+    if (total !== null) return; // 한 번만 캡처
+    let url = '';
+    try { url = res.url(); } catch { return; }
+    if (!QNA_TOTAL_URL_RE.test(url)) return;
+    // 본문 파싱은 비동기 — 실패해도 수집을 방해하지 않도록 전부 삼킨다(총계는 실패 시 null = 미확인).
+    Promise.resolve()
+      .then(() => res.json())
+      .then((json) => {
+        if (total !== null) return;
+        const n = pickQnATotalFromResponse(url, json);
+        if (n === null) return;
+        total = n;
+        if (flags) flags.expectedQnATotalFromNetwork = n;
+        console.log(`[NaverQnAPagination] 📡 Q&A 총건수 캡처(네트워크 totalElements): ${n}`);
+        if (onCapture) { try { onCapture(n); } catch {} }
+      })
+      .catch(() => {});
+  };
+  try { page.on('response', onResponse); } catch { /* 페이지가 이미 닫힘 */ }
+  return {
+    get: () => total,
+    detach: () => { try { page.off('response', onResponse); } catch {} },
+  };
+}
+
+/**
  * 모달 내 현재 Q&A 개수 반환
  * @param {object} page - Puppeteer page 객체
  * @returns {Promise<number>} Q&A 개수
@@ -97,7 +167,8 @@ async function scrollQnAModalToBottom(page) {
  *
  * ★리뷰 쪽(naverPagination.js)에서 검증된 «무증상 종료 방지» 장치를 이식했다:
  *   ① terminationReason을 «항상» flags에 기록 ② 차단/구조파손 시 sendLog로 사용자 통지 ③ 429 감지.
- *   (※ 총 Q&A 수 대조는 미구현 — Q&A 총개수 텍스트 확인이 별도 작업이라 이번 범위 밖)
+ *   ④ v1.7.2 — 총계 대조는 «호출부»(naverService)가 attachQnATotalWatcher로 잡은 totalElements와
+ *      이 함수가 돌려주는 최종 개수를 비교해서 판정한다. 이 함수 자체는 총계를 모른 채 돌아도 된다.
  *
  * @param {object} page - Puppeteer page 객체
  * @param {number} targetCount - 목표 Q&A 개수 (기본 Infinity)
