@@ -1,0 +1,42 @@
+# 빌드만 한다 — ★릴리스를 «만들지 않는다».
+#   1.7.0 윈도우 사고(맥에서 만든 exe에 sharp darwin 바이너리가 들어가 실행 불가) 이후,
+#   윈도우 산출물은 «CI에서만» 만든다. 다만 릴리스는 게이트라 태그 전에 검증용으로 뽑을 길이 필요했다.
+#   ⇒ --publish=never + artifact 업로드. 태그 워크플로(release.yml)와 역할이 다르다.
+name: Build only (no release)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Build (Windows, no publish)
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+        run: npx electron-builder --win --publish=never
+      # ★sharp가 win32 바이너리로 들어갔는지 «빌드 안에서» 확인한다 — 1.7.0은 이걸 안 봐서 터졌다.
+      - name: Verify sharp win32 binary
+        shell: pwsh
+        run: |
+          $p = Get-ChildItem -Recurse -Path dist -Filter "sharp-win32-*.node" -ErrorAction SilentlyContinue
+          if (-not $p) { Write-Error "sharp win32 .node 없음 — 1.7.0과 같은 불량 빌드다"; exit 1 }
+          $p | ForEach-Object { Write-Host "OK $($_.FullName)" }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-build
+          path: |
+            dist/*.exe
+            dist/*.yml
+          retention-days: 7
