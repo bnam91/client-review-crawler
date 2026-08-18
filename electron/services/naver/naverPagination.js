@@ -18,7 +18,8 @@ import { REVIEW } from './naverSelectors.js';
  *    그 값은 «포토/동영상 리뷰 수»(같은 상품에서 9,392)라 총 리뷰 수가 아니다.
  *    → 반드시 query-pages로 «한정»해야 한다. (아무 totalElements나 주우면 9,392로 오판)
  */
-export const REVIEW_TOTAL_URL_RE = /\/v1\/contents\/reviews\/query-pages/;
+// ★그룹상품(group-products/query-pages)도 같은 응답에 totalElements를 싣는다 — 같이 받는다.
+export const REVIEW_TOTAL_URL_RE = /\/v1\/contents\/reviews\/(?:group-products\/)?query-pages/;
 
 /**
  * 리뷰 API 응답에서 총건수를 뽑는다. (순수 함수 — 브라우저 없이 node로 검증 가능)
