@@ -23,8 +23,14 @@ if (window.electronAPI && window.electronAPI.onUpdateStatus) {
       case 'update-available': {
         const ver = data?.version || '?';
         const url = data?.downloadFolderUrl || data?.releaseUrl || '';
-        // logBox에 한 줄로 표시 + 클릭 가능한 링크
-        addUpdateAvailableLogLine(ver, url);
+        if (data?.autoDownload) {
+          // ★앱이 «지금부터» 받는다 — 링크를 주면 같은 파일을 두 번 받게 된다.
+          //   진행률은 곧 download-progress가 같은 줄을 갱신하며 채운다.
+          addLogToLogBox(`[업데이트] 새 버전 v${ver}을 내려받는 중입니다…`, 'info');
+        } else {
+          // 자동 다운로드가 꺼진 플랫폼 — 종전대로 링크를 준다.
+          addUpdateAvailableLogLine(ver, url);
+        }
         break;
       }
 
@@ -50,10 +56,18 @@ if (window.electronAPI && window.electronAPI.onUpdateStatus) {
 
       case 'update-downloaded': {
         const ver = data?.version || '?';
-        addLogToLogBox(
-          `[업데이트] v${ver} 내려받기 완료 — 앱을 종료하면 자동으로 설치됩니다.`,
-          'success'
-        );
+        // ★맥과 윈도우가 «여기서 갈린다».
+        //   맥은 서명·공증이 있어 종료 시 조용히 설치된다 → 알리기만 하면 된다.
+        //   윈도우는 사용자가 «직접 눌러야» 설치가 시작되고, 그때 SmartScreen이 뜬다.
+        //   ⇒ 버튼을 안 주면 다 받아놓고 «아무 일도 안 일어나는» 앱이 된다.
+        if (data?.autoInstall) {
+          addLogToLogBox(
+            `[업데이트] v${ver} 내려받기 완료 — 앱을 종료하면 자동으로 설치됩니다.`,
+            'success'
+          );
+        } else {
+          addInstallReadyLogLine(ver);
+        }
         break;
       }
     }
@@ -140,6 +154,48 @@ function addUpdateAvailableLogLine(version, url) {
   }
 
   logBox.appendChild(line);
+  logBox.scrollTop = logBox.scrollHeight;
+}
+
+// 내려받기 완료(윈도우) — 「설치 실행」 버튼 + SmartScreen 안내를 한 줄로 띄운다.
+// ⚠️윈도우 설치본에는 코드서명이 없어서 실행 시 「Windows의 PC 보호」 파란 창이 뜬다.
+//   그 창을 처음 본 사용자는 «악성코드로 오해하고 취소»한다 → 넘기는 법을 «미리» 알려준다.
+function addInstallReadyLogLine(version) {
+  const logBox = document.getElementById('log-box');
+  if (!logBox) return;
+
+  const line = document.createElement('div');
+  line.className = 'log-line update-available';
+
+  const text = document.createElement('span');
+  text.textContent = `🆕 새 버전 v${version} 내려받기 완료 — `;
+  line.appendChild(text);
+
+  const btn = document.createElement('span');
+  btn.textContent = '[지금 설치]';
+  btn.style.color = '#7aaaff';
+  btn.style.textDecoration = 'underline';
+  btn.style.cursor = 'pointer';
+  btn.title = '앱이 종료되고 설치 프로그램이 실행됩니다';
+  btn.addEventListener('click', () => {
+    // ★한 번 더 못 누르게 막는다 — 연타하면 설치 프로그램이 여러 개 뜬다.
+    if (btn.dataset.clicked === '1') return;
+    btn.dataset.clicked = '1';
+    btn.style.opacity = '0.5';
+    btn.style.cursor = 'default';
+    addLogToLogBox('[업데이트] 설치를 시작합니다 — 앱이 잠시 후 종료됩니다.', 'info');
+    installUpdate();
+  });
+  line.appendChild(btn);
+
+  logBox.appendChild(line);
+
+  // SmartScreen 안내는 «별도 줄»로 — 버튼 줄이 길어지면 안 읽힌다.
+  addLogToLogBox(
+    '[안내] 설치 중 「Windows의 PC 보호」 창이 뜨면 «추가 정보 → 실행»을 눌러 주세요. (정상입니다)',
+    'info'
+  );
+
   logBox.scrollTop = logBox.scrollHeight;
 }
 
