@@ -103,14 +103,21 @@ if (app.isPackaged) {
 // ⇒ ★그 전제가 사라졌다: 2026-07-08 Developer ID 서명 + 공증이 붙었고, v1.7.0도 서명·공증본이다.
 //   맥은 이제 Squirrel.Mac 검증을 통과할 수 있으므로 자동 다운로드·설치를 켠다.
 //
-// ⚠️윈도우는 «그대로 둔다» — 코드서명 인증서가 아직 없다(구매 대기).
-//   미서명 상태의 자동설치는 환경에 따라 차단될 수 있고, 우리는 그걸 «재본 적이 없다».
-//   ⇒ 확인 안 된 것을 고객 앱에 자동으로 적용하지 않는다. 윈도우는 알림 + 다운로드 링크 유지.
-const AUTO_UPDATE_PLATFORMS = ['darwin'];
-const canAutoUpdate = AUTO_UPDATE_PLATFORMS.includes(process.platform);
-autoUpdater.autoDownload = canAutoUpdate;
-autoUpdater.autoInstallOnAppQuit = canAutoUpdate;
-console.log(`   자동 설치: ${canAutoUpdate ? '켜짐(맥)' : '꺼짐(알림+링크만)'} — platform=${process.platform}\n`);
+// ★2026-08-19: 윈도우도 «다운로드까지는» 자동으로 바꿨다 (현빈 승인).
+//   전에는 윈도우가 「알림 + 드라이브 링크」뿐이라, 고객이 브라우저를 열고 폴더를 찾아
+//   169MB를 직접 받아야 했다. 받는 일은 앱이 해도 «안전하다» — 설치와 달리 되돌릴 게 없다.
+//
+// ⛔단, 자동 «설치»(autoInstallOnAppQuit)는 윈도우에서 켜지 않는다.
+//   코드서명 인증서가 없어 설치 실행 시 SmartScreen이 붙는다. 사용자가 «보고 누르는» 순간이
+//   있어야 그 경고를 넘길 수 있고, 앱이 종료할 때 몰래 설치를 시도하면 조용히 실패한다.
+//   ⇒ 다운로드는 자동, 설치는 «사용자 클릭». 맥은 서명·공증이 있으므로 종전대로 완전 자동.
+const AUTO_DOWNLOAD_PLATFORMS = ['darwin', 'win32'];   // 내려받기 — 맥·윈도우 둘 다
+const AUTO_INSTALL_PLATFORMS = ['darwin'];             // 조용한 설치 — ★맥만(서명·공증 있음)
+const canAutoDownload = AUTO_DOWNLOAD_PLATFORMS.includes(process.platform);
+const canAutoInstall = AUTO_INSTALL_PLATFORMS.includes(process.platform);
+autoUpdater.autoDownload = canAutoDownload;
+autoUpdater.autoInstallOnAppQuit = canAutoInstall;
+console.log(`   자동 다운로드: ${canAutoDownload ? '켜짐' : '꺼짐'} / 자동 설치: ${canAutoInstall ? '켜짐(맥)' : '꺼짐(사용자 클릭)'} — platform=${process.platform}\n`);
 
 if (isDev || process.argv.includes('--dev')) {
   // 개발 모드에서도 업데이트 체크 가능하도록 설정
@@ -414,7 +421,9 @@ autoUpdater.on('update-available', (info) => {
   console.log(`   릴리즈 날짜: ${info.releaseDate || '정보 없음'}`);
   console.log('========================================\n');
   log.info('업데이트 발견:', info.version);
-  sendStatusToWindow('update-available', info);
+  // ★autoDownload가 켜진 플랫폼에서는 «앱이 알아서 받는다» → 렌더러가 「다운로드 받기」 링크를
+  //   또 띄우면 사용자가 «두 번» 받는다(수동으로 받은 파일 + 앱이 받은 파일).
+  sendStatusToWindow('update-available', { ...info, autoDownload: canAutoDownload });
 });
 
 autoUpdater.on('update-not-available', (info) => {
@@ -464,7 +473,9 @@ autoUpdater.on('update-downloaded', (info) => {
   console.log('   설치 준비가 완료되었습니다.');
   console.log('========================================\n');
   log.info('업데이트 다운로드 완료');
-  sendStatusToWindow('update-downloaded', info);
+  // ★렌더러가 «자동 설치되는 플랫폼인지»를 알아야 문구를 고를 수 있다.
+  //   맥: 「종료하면 자동 설치」 / 윈도우: 「설치 버튼을 누르세요 + SmartScreen 안내」
+  sendStatusToWindow('update-downloaded', { ...info, autoInstall: canAutoInstall, platform: process.platform });
 });
 
 // OS별 구글드라이브 다운로드 폴더 URL — D 옵션의 외부 링크
