@@ -1,7 +1,8 @@
 # 빌드만 한다 — ★릴리스를 «만들지 않는다».
-#   1.7.0 윈도우 사고(맥에서 만든 exe에 sharp darwin 바이너리가 들어가 실행 불가) 이후,
-#   윈도우 산출물은 «CI에서만» 만든다. 다만 릴리스는 게이트라 태그 전에 검증용으로 뽑을 길이 필요했다.
-#   ⇒ --publish=never + artifact 업로드. 태그 워크플로(release.yml)와 역할이 다르다.
+#   1.7.0 윈도우 사고(맥에서 만든 exe에 sharp darwin 바이너리가 들어가 실행 불가)와
+#   1.7.3 인텔맥 사고(arm64 맥에서 만든 x64 dmg에 sharp arm64가 들어가 실행 불가) 이후,
+#   ★플랫폼·아키텍처별 산출물은 «그 플랫폼의 러너»에서만 만든다.
+#   릴리스는 게이트라 태그 전에 검증용으로 뽑을 길이 필요했다 → --publish=never + artifact.
 name: Build only (no release)
 
 on:
@@ -13,7 +14,23 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest]
+        include:
+          - os: windows-latest
+            target: --win
+            arch: win32-x64
+            expect: sharp-win32-x64.node
+            artifact: windows-build
+          # ★인텔 맥 — arm64 러너에서 크로스 빌드하면 sharp x64가 «안 들어간다»(1.7.3 사고).
+          - os: macos-15-intel
+            target: --mac
+            arch: darwin-x64
+            expect: sharp-darwin-x64.node
+            artifact: mac-intel-build
+          - os: macos-latest
+            target: --mac
+            arch: darwin-arm64
+            expect: sharp-darwin-arm64.node
+            artifact: mac-arm64-build
 
     steps:
       - uses: actions/checkout@v4
@@ -22,21 +39,37 @@ jobs:
           node-version: 20
           cache: npm
       - run: npm ci
-      - name: Build (Windows, no publish)
+      - name: Build (${{ matrix.arch }}, no publish)
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
-        run: npx electron-builder --win --publish=never
-      # ★sharp가 win32 바이너리로 들어갔는지 «빌드 안에서» 확인한다 — 1.7.0은 이걸 안 봐서 터졌다.
-      - name: Verify sharp win32 binary
-        shell: pwsh
+        run: npx electron-builder ${{ matrix.target }} --publish=never
+
+      # ★★핵심 게이트 — 「대상 아키텍처의 sharp가 실제로 들어갔는가」.
+      #   파일이 «있다»가 아니라 «맞는 아키텍처의 것이 있다»를 본다.
+      #   이 검사를 안 해서 같은 사고를 두 번 냈다(윈도우 1.7.0 / 인텔맥 1.7.3).
+      - name: Verify sharp binary for ${{ matrix.arch }}
+        shell: bash
         run: |
-          $p = Get-ChildItem -Recurse -Path dist -Filter "sharp-win32-*.node" -ErrorAction SilentlyContinue
-          if (-not $p) { Write-Error "sharp win32 .node 없음 — 1.7.0과 같은 불량 빌드다"; exit 1 }
-          $p | ForEach-Object { Write-Host "OK $($_.FullName)" }
+          echo "기대 파일: ${{ matrix.expect }}"
+          found=$(find dist -name "${{ matrix.expect }}" 2>/dev/null | head -5)
+          if [ -z "$found" ]; then
+            echo "::error::${{ matrix.expect }} 가 산출물에 없다 — ${{ matrix.arch }} 빌드는 «불량»이다"
+            echo "--- dist 안의 sharp 관련 파일 ---"
+            find dist -name "sharp-*.node" 2>/dev/null | head -20
+            exit 1
+          fi
+          echo "OK: $found"
+          # ★있다고 끝이 아니다 — «엉뚱한 아키텍처»가 섞여 들어왔는지도 본다.
+          wrong=$(find dist -name "sharp-*.node" 2>/dev/null | grep -v "${{ matrix.expect }}" | head -5 || true)
+          if [ -n "$wrong" ]; then
+            echo "::warning::다른 아키텍처 sharp도 함께 들어있다: $wrong"
+          fi
+
       - uses: actions/upload-artifact@v4
         with:
-          name: windows-build
+          name: ${{ matrix.artifact }}
           path: |
             dist/*.exe
+            dist/*.dmg
             dist/*.yml
           retention-days: 7
