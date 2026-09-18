@@ -43,6 +43,12 @@ const QUERY_PAGES_URL_RE = /\/[a-z]\/v1\/contents\/reviews\/(?:group-products\/)
 //                    ⑶cookie는 우리 객체에 «자격증명을 담지 않기» 위해서다(세션은 credentials:'include'가 붙인다).
 const FORBIDDEN_HEADER_RE = /^(?::|host$|connection$|content-length$|cookie2?$|origin$|referer$|sec-|proxy-|accept-encoding$|accept-charset$|user-agent$|te$|trailer$|transfer-encoding$|upgrade$|via$|dnt$|keep-alive$|expect$|date$|access-control-request-)/i;
 
+// ★헤더 «이름»도 토큰 규칙을 지켜야 한다 (RFC 7230 tchar).
+//   이름이 비정상이면 fetch()가 «동기»로 던져 .catch() 안전망을 «타지 못한다»
+//   ⇒ 「최악이 변경 전 동작」이라는 보장이 그 구간에서만 깨진다 (2차 검수 지적).
+//   실무상 이름은 CDP가 파싱한 실제 브라우저 헤더라 유효하지만, 보장을 코드로 닫아둔다.
+const VALID_HEADER_NAME_RE = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/;
+
 // ★값에 CR/LF/NUL이 섞이면 fetch가 «던진다» — 이름이 아니라 «값»이 진짜 크래시 축이다.
 //   CDP는 중복 헤더를 개행으로 이어붙이는 관례가 있어 현실적으로 들어올 수 있다.
 //   여기서 안 거르면 첫 배치에서 예외가 나고, 템플릿이 있는 한 DOM 폴백으로도 안 내려가
@@ -54,6 +60,7 @@ function pickReusableHeaders(headers) {
   const out = {};
   for (const [k, v] of Object.entries(headers || {})) {
     if (FORBIDDEN_HEADER_RE.test(k)) continue;
+    if (!VALID_HEADER_NAME_RE.test(k)) continue;
     if (typeof v !== 'string') continue;
     if (UNSAFE_HEADER_VALUE_RE.test(v)) continue;
     out[k] = v;
@@ -333,6 +340,9 @@ export async function collectReviewsViaApi(page, options = {}) {
         rateEvents.push(ev);
         takeMeta(r.meta);
         absorb(r.rows);
+        // ★«대기»만으로 풀렸다 = 이번 429는 «예산 소진형»이다.
+        //   그러면 사다리 단축을 되돌린다 — 한 런 안에서도 429의 성격이 바뀔 수 있다 (2차 검수 지적).
+        refreshIsTheRemedy = false;
         sendLog?.(`[정보] 속도제한에서 회복 — ${p}페이지 다음부터 이어서 수집합니다 (${rawReviews.length.toLocaleString()}/${fmtTotal()}건)`, 'success');
         return true;
       }
