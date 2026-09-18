@@ -27,7 +27,45 @@
 //   본문 규약은 같다(page/pageSize/정렬 + JSON) → 같은 페이징 로직을 그대로 쓸 수 있다.
 //   이 한 줄을 안 받아서 그룹상품이 «전부» 느린 DOM 폴백으로 떨어졌고,
 //   리뷰가 많은 상품(⑧ 39,087건·⑩ 52,986건)은 3~8%만 받고 부분수집으로 끝났다.
-const QUERY_PAGES_URL_RE = /\/n\/v1\/contents\/reviews\/(?:group-products\/)?query-pages/;
+// ★호스트마다 «경로 조각»이 다르다 (2026-09-18 실측 — 이가을 고객 건에서 규명)
+//     브랜드스토어  brand.naver.com       POST /n/v1/contents/reviews/query-pages
+//     스마트스토어  smartstore.naver.com  POST /i/v1/contents/reviews/query-pages
+//   본문 규약은 «완전히 같다»(checkoutMerchantNo/originProductNo/page/pageSize/정렬).
+//   ⚠️'n'을 박아두면 스마트스토어 상품이 «전부» 느린 DOM 폴백으로 떨어진다.
+//     그 경로의 429는 네이버 프론트가 재요청을 멈춰 «이어받기 자체가 불가능»하다 ⇒ 부분수집으로 끝난다.
+const QUERY_PAGES_URL_RE = /\/[a-z]\/v1\/contents\/reviews\/(?:group-products\/)?query-pages/;
+
+// ★승계에서 빼는 헤더 이름.
+//   ⚠️정확히 말하면 «금지 헤더라서 던지는» 게 아니다 — 금지 헤더(cookie/sec-ch-ua 등)는
+//     fetch가 «조용히 무시»한다. 실제로 던지는 이름은 `:`로 시작하는 HTTP/2 의사헤더뿐이다.
+//   그래도 빼는 이유: ⑴브라우저가 직접 채우는 값이라 물려줄 필요가 없고
+//                    ⑵content-length는 본문을 갈아끼우므로 옛 길이가 남으면 해롭고
+//                    ⑶cookie는 우리 객체에 «자격증명을 담지 않기» 위해서다(세션은 credentials:'include'가 붙인다).
+const FORBIDDEN_HEADER_RE = /^(?::|host$|connection$|content-length$|cookie2?$|origin$|referer$|sec-|proxy-|accept-encoding$|accept-charset$|user-agent$|te$|trailer$|transfer-encoding$|upgrade$|via$|dnt$|keep-alive$|expect$|date$|access-control-request-)/i;
+
+// ★값에 CR/LF/NUL이 섞이면 fetch가 «던진다» — 이름이 아니라 «값»이 진짜 크래시 축이다.
+//   CDP는 중복 헤더를 개행으로 이어붙이는 관례가 있어 현실적으로 들어올 수 있다.
+//   여기서 안 거르면 첫 배치에서 예외가 나고, 템플릿이 있는 한 DOM 폴백으로도 안 내려가
+//   «부분수집»이 아니라 «0건»이 된다 (Evaluator 지적, 2026-09-18).
+const UNSAFE_HEADER_VALUE_RE = /[\r\n\0]/;
+
+/** 포착한 요청 헤더에서 되쏠 수 있는 것만 남긴다. */
+function pickReusableHeaders(headers) {
+  const out = {};
+  for (const [k, v] of Object.entries(headers || {})) {
+    if (FORBIDDEN_HEADER_RE.test(k)) continue;
+    if (typeof v !== 'string') continue;
+    if (UNSAFE_HEADER_VALUE_RE.test(v)) continue;
+    out[k] = v;
+  }
+  out['content-type'] = 'application/json';
+  return out;
+}
+
+/** 이 템플릿이 «인증 헤더»를 들고 있는가 — 없으면 인증을 요구하는 상점에서 첫 페이지부터 429다. */
+function hasAuthHeaders(headers) {
+  return !!(headers && (headers['x-client-rtk'] || headers['x-client-rts']));
+}
 
 // 한 배치(evaluate 1회)의 상한 — protocolTimeout 180초 아래로 «항상» 유지하기 위한 값
 const BATCH_SOFT_DEADLINE_MS = 100000;
@@ -60,9 +98,37 @@ export function attachReviewApiTemplate(page) {
     } catch { return; }
     if (!postData) return;
     // JSON이 아니면 템플릿으로 쓸 수 없다(page 필드를 갈아끼워야 하므로).
-    try { JSON.parse(postData); } catch { return; }
-    template = { url, method, postData };
-    console.log(`[NaverReviewApi] 📡 리뷰 API 템플릿 포착/갱신: ${url}`);
+    // ★본문 «모양»까지 확인한다 (Codex 리뷰 2026-09-18).
+    //   URL 패턴을 호스트 접두 한 글자([a-z])로 넓혔기 때문에, 우연히 같은 모양의 다른 요청이
+    //   «마지막 요청이 이긴다» 규칙을 타고 템플릿을 조용히 오염시킬 여지가 생긴다.
+    //   페이징에 실제로 필요한 키(page/pageSize)가 없으면 템플릿으로 받지 않는다.
+    //   ⇒ 접두를 (?:n|i)로 좁히는 대신 이 가드를 둔다. 좁히면 «새 호스트 유형»에서 또 폴백으로
+    //     떨어지는데, 우리는 이미 그 방식으로 두 번 물렸다(그룹상품 2026-08-18 / 스마트스토어 2026-09-18).
+    try {
+      const body = JSON.parse(postData);
+      if (!body || typeof body !== 'object') return;
+      if (!('page' in body) || !('pageSize' in body)) return;
+    } catch { return; }
+    // ★헤더도 «같이» 포착한다 (2026-09-18 실측으로 확정).
+    //   스마트스토어는 `x-client-rtk`(봇 방지 토큰)·`x-client-rts`·`x-client-version`이 없으면
+    //   같은 URL·같은 본문이어도 **1페이지부터 429**를 준다. A/B 실증:
+    //     content-type만  → p1 HTTP 429 (12.5분 대기해도 안 풀림)
+    //     헤더 승계        → totalElements 5,074 · 정상 200
+    //   ⇒ 토큰은 우리가 만들 수 없다. «페이지가 쏜 진짜 요청»에서 빌려오는 것이 유일한 방법이다.
+    let headers = {};
+    let headersOk = true;
+    try { headers = pickReusableHeaders(req.headers()); }
+    catch { headers = { 'content-type': 'application/json' }; headersOk = false; }
+    template = { url, method, postData, headers };
+    // ★「인증 헤더를 실었는가」를 «판정 가능한 형태»로 남긴다.
+    //   이게 없으면 다음에 429가 났을 때 «헤더 승계가 깨진 것»인지 «네이버가 바뀐 것»인지 구분이 안 된다.
+    //   증상(429)만으로는 두 원인이 똑같이 보인다 (Evaluator 지적, 2026-09-18).
+    const authed = hasAuthHeaders(headers);
+    if (!headersOk) {
+      console.log(`[NaverReviewApi] ⚠️ 템플릿은 잡았으나 «헤더를 못 읽었다» — 인증 헤더가 필요한 상점이면 429가 난다: ${url}`);
+    } else {
+      console.log(`[NaverReviewApi] 📡 리뷰 API 템플릿 포착/갱신: ${url} (헤더 ${Object.keys(headers).length}개, 인증헤더 ${authed ? '있음' : '⚠️없음'})`);
+    }
   };
   try { page.on('request', onRequest); } catch { /* 페이지가 이미 닫힘 */ }
   return {
@@ -89,9 +155,12 @@ function runBatch(page, template, gapMs, from, to) {
     const startedAt = Date.now();
 
     const call = (p) => {
+      // ★포착한 헤더를 «그대로» 되쏜다 — 봇 방지 토큰(x-client-rtk 등)이 여기 들어 있다.
+      //   없으면 스마트스토어는 1페이지부터 429다(2026-09-18 A/B 실증).
+      const headers = { ...(t.headers || {}), 'content-type': 'application/json' };
       const init = {
         method: t.method,
-        headers: { 'content-type': 'application/json' },
+        headers,
         body: JSON.stringify({ ...body0, page: p }),
         credentials: 'include',
       };
@@ -100,7 +169,13 @@ function runBatch(page, template, gapMs, from, to) {
           init.signal = AbortSignal.timeout(fetchTimeoutMs);
         }
       } catch {}
-      return fetch(t.url, init);
+      // ★안전망 — 승계한 헤더 때문에 fetch가 «던지면» 최소 헤더로 «한 번» 다시 간다.
+      //   그래야 최악이 «변경 전 동작»으로 내려앉는다. 안 그러면 템플릿이 있는 한 DOM 폴백도
+      //   안 타므로 «부분수집»이 아니라 «0건»으로 끝난다 (Evaluator 지적).
+      return fetch(t.url, init).catch((e) => {
+        if (!(e instanceof TypeError)) throw e;
+        return fetch(t.url, { ...init, headers: { 'content-type': 'application/json' } });
+      });
     };
 
     for (let p = start; p <= end; p++) {
@@ -185,10 +260,25 @@ export async function collectReviewsViaApi(page, options = {}) {
     batchSize = 25,
     backoffMs = [30000, 60000, 120000],
     maxPages = Number(process.env.NAVER_REVIEW_API_MAX_PAGES || 0),
+    refreshTemplate = null,
+    maxTemplateRefresh = 3,
+    maxTemplateRefreshTotal = 40,
   } = options;
 
   if (!template) throw new Error('리뷰 API 템플릿이 없습니다 (모달 진입 전 attachReviewApiTemplate 필요)');
   if (flags) flags.usedApi = true;
+
+  // ★토큰은 «늙는다» — 대기만으로는 안 풀리는 429가 있다 (2026-09-18 실측).
+  //   124페이지까지 정상 수신 → p125에서 429 → 30/60/120초를 다 써도 그대로 429.
+  //   리뷰 화면을 «다시 열어» 새 x-client-rtk를 받자마자 254페이지까지 완주했다.
+  //   ⇒ 백오프를 다 쓰면 포기하지 말고 «템플릿을 새로 받아» 한 번 더 간다.
+  let activeTemplate = template;
+  let templateRefreshCount = 0;       // «연속» 실패 예산 (성공하면 리셋된다)
+  let templateRefreshTotal = 0;       // 런 전체 총 갱신 횟수 — 폭주 방지용 절대 상한
+  // ★갱신이 «해법»으로 판명되면 그 뒤로는 대기 사다리를 줄인다.
+  //   429는 약 100페이지마다 온다(파일 머리 실측). 52,986건 상품이면 ~26회다.
+  //   매번 30+60+120=210초를 태우면 갱신이 답인 걸 «알면서도» 1시간 반을 버린다 (Evaluator 지적).
+  let refreshIsTheRemedy = false;
 
   const startedAt = Date.now();
   const seen = new Set();
@@ -223,15 +313,19 @@ export async function collectReviewsViaApi(page, options = {}) {
 
   /** 429를 만난 «같은 페이지»를 대기 사다리대로 재요청한다. 회복하면 그 페이지 결과를 흡수하고 true. */
   const waitAndRetry = async (p) => {
-    const ev = { page: p, waits: [], recovered: false };
-    for (let i = 0; i < backoffMs.length; i++) {
-      const waitMs = backoffMs[i];
+    const ev = { page: p, waits: [], recovered: false, startedAt: Date.now() };
+    // 갱신이 답으로 판명된 뒤엔 사다리를 «1단»만 돌고 곧장 갱신으로 간다.
+    const ladder = refreshIsTheRemedy && typeof refreshTemplate === 'function'
+      ? backoffMs.slice(0, 1)
+      : backoffMs;
+    for (let i = 0; i < ladder.length; i++) {
+      const waitMs = ladder[i];
       ev.waits.push(waitMs);
-      console.log(`[NaverReviewApi] ⏳ 429(p${p}) — ${waitMs / 1000}초 대기 후 같은 페이지 재요청 (${i + 1}/${backoffMs.length})`);
+      console.log(`[NaverReviewApi] ⏳ 429(p${p}) — ${waitMs / 1000}초 대기 후 같은 페이지 재요청 (${i + 1}/${ladder.length})`);
       sendLog?.(`[안내] 네이버 속도제한(429) — ${waitMs / 1000}초 대기 후 같은 지점(${p}페이지)에서 이어받습니다 (현재 ${rawReviews.length.toLocaleString()}/${fmtTotal()}건)`, 'warning');
       await sleep(waitMs);
       let r;
-      try { r = await runBatch(page, template, gapMs, p, p); }
+      try { r = await runBatch(page, activeTemplate, gapMs, p, p); }
       catch (e) { console.log(`[NaverReviewApi] 재요청 실패: ${e.message}`); continue; }
       if (r.rateLimitedAt == null && r.stoppedAt == null && r.rows.length > 0) {
         ev.recovered = true;
@@ -243,13 +337,46 @@ export async function collectReviewsViaApi(page, options = {}) {
         return true;
       }
     }
+    // ★대기로 안 풀렸다 = «토큰이 늙은» 경우일 수 있다. 화면을 다시 열어 새 토큰을 받아 한 번 더.
+    if (typeof refreshTemplate === 'function' && templateRefreshCount < maxTemplateRefresh && templateRefreshTotal < maxTemplateRefreshTotal) {
+      templateRefreshCount++;
+      templateRefreshTotal++;
+      console.log(`[NaverReviewApi] 🔄 토큰 갱신 시도 (${templateRefreshCount}/${maxTemplateRefresh})`);
+      sendLog?.(`[안내] 대기로 안 풀려 리뷰 화면을 다시 열어 «새 인증값»을 받습니다 (${templateRefreshCount}/${maxTemplateRefresh})`, 'warning');
+      let fresh = null;
+      try { fresh = await refreshTemplate(); }
+      catch (e) { console.log(`[NaverReviewApi] 토큰 갱신 실패: ${e.message}`); }
+      if (fresh && fresh.url && fresh.postData && hasAuthHeaders(fresh.headers)) {
+        activeTemplate = fresh;
+        ev.templateRefreshed = true;
+        let r2 = null;
+        try { r2 = await runBatch(page, activeTemplate, gapMs, p, p); }
+        catch (e) { console.log(`[NaverReviewApi] 갱신 후 재요청 실패: ${e.message}`); }
+        if (r2 && r2.rateLimitedAt == null && r2.stoppedAt == null && r2.rows.length > 0) {
+          ev.recovered = true;
+          ev.recoveredBy = 'template-refresh';
+          // ★대기 합만 세면 «모달 재진입에 쓴 시간»이 빠져 회복 소요를 과소보고한다.
+          ev.recoveredAfterMs = Date.now() - ev.startedAt;
+          templateRefreshCount = 0;     // 회복했으면 «연속 실패» 카운터는 0으로 되돌린다
+          refreshIsTheRemedy = true;    // 이 상품/세션에선 갱신이 답이다 — 다음부터 빨리 간다
+          rateEvents.push(ev);
+          takeMeta(r2.meta);
+          absorb(r2.rows);
+          sendLog?.(`[정보] 새 인증값으로 회복 — ${p}페이지 다음부터 이어서 수집합니다 (${rawReviews.length.toLocaleString()}/${fmtTotal()}건)`, 'success');
+          return true;
+        }
+        console.log('[NaverReviewApi] 토큰을 갱신했는데도 429 — 포기');
+      } else {
+        console.log('[NaverReviewApi] 새 템플릿을 못 받았거나 «인증 헤더가 없다» — 포기');
+      }
+    }
     rateEvents.push(ev);
     problems.push({ page: p, reason: 'HTTP 429 (백오프 소진, 미회복)' });
     return false;
   };
 
   // ① 1페이지로 «계약»(분모)을 먼저 고정한다. 끝에 반드시 이 분모와 대조한다.
-  const head = await runBatch(page, template, gapMs, 1, 1);
+  const head = await runBatch(page, activeTemplate, gapMs, 1, 1);
   takeMeta(head.meta);
   absorb(head.rows);
   problems.push(...head.problems);
@@ -296,7 +423,7 @@ export async function collectReviewsViaApi(page, options = {}) {
     const to = Math.min(next + batchSize - 1, limitPages);
     let r;
     try {
-      r = await runBatch(page, template, gapMs, next, to);
+      r = await runBatch(page, activeTemplate, gapMs, next, to);
     } catch (e) {
       problems.push({ page: next, reason: `배치 실행 실패: ${e.message}` });
       terminationReason = 'api_exception';

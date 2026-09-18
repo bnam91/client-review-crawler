@@ -4,7 +4,8 @@
 // productPageUtil의 verify는 페이지 리뉴얼로 옛 셀렉터가 무효화되어 사용 중단.
 // 페이지 상태 검증은 naverTabActions.waitForCaptchaIfNeeded + 모달 진입 폴링이 대체.
 import { uploadDiagnostic, findUserByIp } from './licenseService.js';
-import { navigateToNaver, createNaverSearchUrl, isNaverProductPage, waitForNaverProductPage, closeReviewModal, closeQnAModal } from './naver/naverNavigation.js';
+import { navigateToNaver, createNaverSearchUrl, isNaverProductPage, waitForNaverProductPage, openReviewModal, closeReviewModal, closeQnAModal } from './naver/naverNavigation.js';
+import { waitForCaptchaIfNeeded } from './naver/naverTabActions.js';
 import { clickReviewOrQnATab } from './naver/naverTabActions.js';
 import { extractAllReviews, finalizeReviews, createPhotoStats, topPhotoFailReasons } from './naver/naverReviewExtractor.js';
 import { attachReviewApiTemplate, collectReviewsViaApi } from './naver/naverReviewApi.js';
@@ -211,8 +212,73 @@ function dropDuplicateReviews(list, seenKeys) {
   return { kept, dropped };
 }
 
+/**
+ * ★「토큰 갱신기」 — 429가 대기로 안 풀릴 때 쓰는 회복 수단 (2026-09-18 실측으로 도입).
+ *
+ * 스마트스토어 리뷰 API는 `x-client-rtk`(봇 방지 토큰)를 요구하는데 이게 «늙는다».
+ * 실측: 124페이지까지 정상 → p125부터 429 → 30/60/120초를 다 써도 그대로 429
+ *       → 리뷰 화면을 «다시 열어» 새 토큰을 받자마자 254페이지까지 완주.
+ *
+ * ⚠️함정: 모달을 다시 열면 정렬이 «기본(랭킹순)»으로 돌아간다.
+ *   그래서 새로 받는 것은 **url·헤더뿐**이고, **본문(postData)은 원본을 그대로 쓴다.**
+ *   안 그러면 사용자가 고른 정렬이 수집 도중에 조용히 바뀐다.
+ */
+function makeTemplateRefresher(page, originalTemplate, sendLog) {
+  return async () => {
+    let watcher = null;
+    try {
+      // ⚠️모달이 «안 닫히면» 다시 열어도 새 요청이 안 뜬다(이미 열려 있으니).
+      let closed = false;
+      try { closed = await closeReviewModal(page); } catch { closed = false; }
+      if (!closed) console.log('[NaverService] ⚠️ 토큰 갱신: 리뷰 모달 «닫기»가 확인되지 않음 — 재진입이 빌 수 있다');
+      await new Promise((r) => setTimeout(r, 1500));
+
+      // ★★캡차를 «먼저» 기다린다 (Evaluator 지적, 2026-09-18).
+      //   이 코드가 도는 순간은 «429가 대기로도 안 풀린 시점» = 네이버가 확인 화면을 띄울 확률이 가장 높은 때다.
+      //   최초 진입 경로(clickReviewOrQnATab)는 캡차를 기다리는데 여기만 건너뛰면,
+      //   사용자가 30초만 풀어주면 완주했을 건을 «확정 부분수집»으로 끝내면서 이유도 안 알린다.
+      const captchaCleared = await waitForCaptchaIfNeeded(page, sendLog);
+      if (!captchaCleared) {
+        sendLog?.('[안내] 네이버 확인 화면(캡차/일시 장애)이 풀리지 않아 이어받기를 못 했습니다.', 'warning');
+        return null;
+      }
+
+      watcher = attachReviewApiTemplate(page);
+      let opened = false;
+      try { opened = await openReviewModal(page, 20000); }
+      catch { opened = false; }
+      if (!opened) {
+        console.log('[NaverService] 토큰 갱신: 모달 재진입 실패');
+        sendLog?.('[안내] 리뷰 화면을 다시 열지 못해 이어받기를 중단합니다.', 'warning');
+        return null;
+      }
+      // 모달이 열리는 순간 첫 query-pages가 발사된다 — 잠깐 기다렸다 회수한다.
+      for (let i = 0; i < 12 && !watcher.get(); i++) await new Promise((r) => setTimeout(r, 700));
+      const fresh = watcher.get();
+      if (!fresh) {
+        console.log('[NaverService] 토큰 갱신: 새 요청을 못 잡음');
+        sendLog?.('[안내] 새 인증값을 받지 못해 이어받기를 중단합니다.', 'warning');
+        return null;
+      }
+      console.log('[NaverService] 🔄 토큰 갱신 성공 (URL·정렬은 원본 유지)');
+      sendLog?.('[정보] 새 인증값을 받았습니다 — 이어서 수집합니다.', 'success');
+      // ★url도 «원본»을 쓴다 (Evaluator 지적).
+      //   늙는 것은 헤더(x-client-rtk)뿐이다. url은 상품·호스트별로 불변인데,
+      //   네이버가 훗날 정렬/페이징을 쿼리스트링에 얹으면 «새 URL + 옛 본문»이 조용히 뒤섞인다.
+      return { url: originalTemplate.url, method: originalTemplate.method, headers: fresh.headers, postData: originalTemplate.postData };
+    } catch (e) {
+      console.log(`[NaverService] 토큰 갱신 실패: ${e.message}`);
+      sendLog?.(`[안내] 이어받기 준비 중 오류가 나 중단합니다: ${e.message}`, 'warning');
+      return null;
+    } finally {
+      // ★watcher가 새면 «우리가 쏘는 수집 요청»을 되잡아 로그를 페이지 수만큼 도배한다(실측 588줄).
+      try { watcher?.detach(); } catch {}
+    }
+  };
+}
+
 async function collectReviewsByApi(targetPage, opts) {
-  const { template, targetCount, photoFolderPath, savePath, downloadImages, smallImage, imageMode, sendLog, flags, photoStats } = opts;
+  const { template, targetCount, photoFolderPath, savePath, downloadImages, smallImage, imageMode, sendLog, flags, photoStats, refreshTemplate } = opts;
   const allReviews = [];
   let excelChunkCount = 0;
   let crawlError = null;
@@ -221,7 +287,7 @@ async function collectReviewsByApi(targetPage, opts) {
   let duplicateCount = 0;
 
   try {
-    api = await collectReviewsViaApi(targetPage, { targetCount, template, sendLog, flags });
+    api = await collectReviewsViaApi(targetPage, { targetCount, template, sendLog, flags, refreshTemplate });
 
     let chunkNum = 1;
     for (let off = 0; off < api.rawReviews.length; off += CHUNK_SIZE_REVIEWS) {
@@ -749,7 +815,7 @@ export async function handleNaver(browser, page, input, isUrl, collectionType = 
           //   페이지 수만큼 로그를 도배한다(실측: 588페이지 = 588줄).
           apiWatcher.detach();
           sendLog(`[시작] 리뷰 수집 시작 — 네이버 리뷰 API 직접 조회 (목표 ${targetText})`, 'info');
-          const run = await collectReviewsByApi(newPage, { ...collectOpts, template: apiTemplate });
+          const run = await collectReviewsByApi(newPage, { ...collectOpts, template: apiTemplate, refreshTemplate: makeTemplateRefresher(newPage, apiTemplate, sendLog) });
           allReviews = run.allReviews;
           excelChunkCount = run.excelChunkCount;
           crawlError = run.crawlError;
@@ -838,10 +904,16 @@ export async function handleNaver(browser, page, input, isUrl, collectionType = 
           sendLog(`[경고] ⚠️ 부분수집입니다 — 네이버가 수집 속도 제한(429)을 걸어 ${yieldSummary}까지만 수집되었습니다.`, 'warning');
           // ★'안정 수집'은 «DOM 스크롤 대기시간»만 바꾼다(scrollWaitMs 3000/1500) — API 경로엔 효과가 없다.
           //   전에는 경로를 안 가리고 「체크하면 전량 수집됩니다」라고 «단언»했다. 틀린 안내였다(2026-08-18).
-          if (scrollFlags.usedApi) {
-            sendLog(`[안내] 잠시(5~10분) 뒤에 다시 실행해 주세요. ('안정 수집'은 이 경로에 효과가 없습니다)`, 'info');
-          } else {
-            sendLog(`[안내] '안정 수집'을 체크한 뒤 다시 실행하면 성공률이 올라갑니다.`, 'info');
+          // ★도달 불가 분기를 걷어냈다 (Evaluator 지적, 2026-09-18).
+          //   바로 위 분기가 `endedByRateLimit && usedApi`를 이미 가져가므로 여기 오면 usedApi는 «반드시 false»다.
+          //   `if (usedApi)`를 남겨두면 다음 사람이 «두 갈래»로 읽는데 한쪽은 영원히 안 돈다.
+          {
+            // ★2026-09-18 정정 — 예전엔 여기서 「'안정 수집'을 체크하면 성공률이 올라갑니다」라고 «단언»했다.
+            //   그런데 이 경로의 429는 «속도» 문제가 아니다(간격을 3배 늦춰도 같은 자리에서 걸린다).
+            //   게다가 이미 체크한 사용자에게도 같은 문구가 나가 «헛수고»를 시켰다(이가을 고객 건).
+            //   ⇒ 이 경로로 떨어진 것 자체가 우리 쪽 한계다. 사실만 말하고 재시도를 권하지 않는다.
+            sendLog(`[안내] 이 상품은 앱이 «예비 방식»으로 수집해 중간에 끊겼습니다. 같은 설정으로 다시 실행해도 비슷한 지점에서 멈출 수 있습니다.`, 'info');
+            sendLog(`[안내] 수집 속도를 낮춰도 이 제한은 풀리지 않습니다. 계속 반복되면 중단 코드와 함께 문의해 주세요.`, 'info');
           }
         } else if (shortfall || apiIncomplete) {
           sendLog(`[경고] ⚠️ 부분수집입니다 — 이 상품의 리뷰는 ${expectedTotal ? expectedTotal.toLocaleString() : '?'}건인데 ${allReviews.length.toLocaleString()}건만 수집되었습니다.`, 'warning');
@@ -1256,7 +1328,7 @@ export async function handleNaver(browser, page, input, isUrl, collectionType = 
           //   페이지 수만큼 로그를 도배한다(실측: 588페이지 = 588줄).
           apiWatcher.detach();
           sendLog(`[시작] 리뷰 수집 시작 — 네이버 리뷰 API 직접 조회 (목표 ${targetText})`, 'info');
-          const run = await collectReviewsByApi(productPage, { ...collectOpts, template: apiTemplate });
+          const run = await collectReviewsByApi(productPage, { ...collectOpts, template: apiTemplate, refreshTemplate: makeTemplateRefresher(productPage, apiTemplate, sendLog) });
           allReviews = run.allReviews;
           excelChunkCount = run.excelChunkCount;
           crawlError = run.crawlError;
@@ -1345,10 +1417,16 @@ export async function handleNaver(browser, page, input, isUrl, collectionType = 
           sendLog(`[경고] ⚠️ 부분수집입니다 — 네이버가 수집 속도 제한(429)을 걸어 ${yieldSummary}까지만 수집되었습니다.`, 'warning');
           // ★'안정 수집'은 «DOM 스크롤 대기시간»만 바꾼다(scrollWaitMs 3000/1500) — API 경로엔 효과가 없다.
           //   전에는 경로를 안 가리고 「체크하면 전량 수집됩니다」라고 «단언»했다. 틀린 안내였다(2026-08-18).
-          if (scrollFlags.usedApi) {
-            sendLog(`[안내] 잠시(5~10분) 뒤에 다시 실행해 주세요. ('안정 수집'은 이 경로에 효과가 없습니다)`, 'info');
-          } else {
-            sendLog(`[안내] '안정 수집'을 체크한 뒤 다시 실행하면 성공률이 올라갑니다.`, 'info');
+          // ★도달 불가 분기를 걷어냈다 (Evaluator 지적, 2026-09-18).
+          //   바로 위 분기가 `endedByRateLimit && usedApi`를 이미 가져가므로 여기 오면 usedApi는 «반드시 false»다.
+          //   `if (usedApi)`를 남겨두면 다음 사람이 «두 갈래»로 읽는데 한쪽은 영원히 안 돈다.
+          {
+            // ★2026-09-18 정정 — 예전엔 여기서 「'안정 수집'을 체크하면 성공률이 올라갑니다」라고 «단언»했다.
+            //   그런데 이 경로의 429는 «속도» 문제가 아니다(간격을 3배 늦춰도 같은 자리에서 걸린다).
+            //   게다가 이미 체크한 사용자에게도 같은 문구가 나가 «헛수고»를 시켰다(이가을 고객 건).
+            //   ⇒ 이 경로로 떨어진 것 자체가 우리 쪽 한계다. 사실만 말하고 재시도를 권하지 않는다.
+            sendLog(`[안내] 이 상품은 앱이 «예비 방식»으로 수집해 중간에 끊겼습니다. 같은 설정으로 다시 실행해도 비슷한 지점에서 멈출 수 있습니다.`, 'info');
+            sendLog(`[안내] 수집 속도를 낮춰도 이 제한은 풀리지 않습니다. 계속 반복되면 중단 코드와 함께 문의해 주세요.`, 'info');
           }
         } else if (shortfall || apiIncomplete) {
           sendLog(`[경고] ⚠️ 부분수집입니다 — 이 상품의 리뷰는 ${expectedTotal ? expectedTotal.toLocaleString() : '?'}건인데 ${allReviews.length.toLocaleString()}건만 수집되었습니다.`, 'warning');
