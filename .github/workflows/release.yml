@@ -15,7 +15,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-latest, windows-latest]
+        # ★맥은 CI에서 «게시하지 않는다» (2026-09-19).
+        #   ⑴CI엔 Developer ID 인증서가 없어(CSC_IDENTITY_AUTO_DISCOVERY=false) 미서명본이 나간다.
+        #   ⑵arm64 러너에서 --mac을 돌리면 x64 앱 «안에 arm64 sharp»가 들어간다(1.7.3 사고).
+        #     그 방어(인텔 러너 + sharp 아키텍처 게이트)는 build-only.yml에만 있었고 여기엔 없었다.
+        #   ⇒ 맥 자산은 로컬 `npm run release:mac`(서명+공증)이 «정본»이다.
+        #     여기서 같이 올리면 «불량+미서명»이 먼저 게시됐다가 덮어쓰기를 «잊으면» 그대로 나간다.
+        os: [windows-latest]
 
     steps:
       - name: Checkout
@@ -30,6 +36,8 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # ⛔현재 매트릭스에 macos가 없어 이 스텝은 돌지 않는다 (위 주석 참조).
+      #   맥을 CI에서 다시 게시하려면 ①인텔 러너 추가 ②sharp 아키텍처 게이트 ③서명·공증 시크릿이 «먼저» 있어야 한다.
       - name: Build & publish (macOS)
         if: matrix.os == 'macos-latest'
         env:
