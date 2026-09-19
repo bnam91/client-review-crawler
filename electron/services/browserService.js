@@ -189,12 +189,23 @@ export async function openUrlInBrowser(input, platform = 0, collectionType = 0, 
         } catch {}
       }
 
-      // 1) 기존 puppeteer-chrome-profile 프로세스 kill (macOS/Linux)
+      // 1) 기존 puppeteer-chrome-profile 프로세스를 «곱게» 내린다 (macOS/Linux)
+      //
+      // ★2026-09-19 실측 결함 — 예전엔 곧장 `pkill -9`였다.
+      //   kill -9는 크롬이 «쿠키를 디스크에 쓸 틈»을 주지 않는다.
+      //   ⇒ 사용자가 네이버에 로그인해 둬도 «다음 수집을 시작하는 순간» 세션이 날아갔다.
+      //     네이버가 상품 페이지에 로그인을 요구하기 시작하면 «영원히 못 넘는» 구조였다.
+      //     실측: 앱 크롬에서 로그인 성공(상품 페이지 도달) → 다음 수집 시작 →
+      //           프로필의 NID_AUT/NID_SES가 0개.
+      //   ⇒ SIGTERM으로 정상 종료를 «먼저» 시도하고, 그래도 남아 있을 때만 강제한다.
       try {
         const { exec: execCb } = await import('child_process');
         const execPromise = (cmd) => new Promise((resolve) => execCb(cmd, () => resolve()));
+        const nap = (ms) => new Promise((r) => setTimeout(r, ms));
         if (process.platform === 'darwin' || process.platform === 'linux') {
-          await execPromise(`pkill -9 -f "user-data-dir=${userDataDir}" || true`);
+          await execPromise(`pkill -f "user-data-dir=${userDataDir}" || true`);    // SIGTERM = 정상 종료(쿠키 flush)
+          await nap(2500);
+          await execPromise(`pkill -9 -f "user-data-dir=${userDataDir}" || true`);  // 안 죽었으면 그때 강제
         } else if (process.platform === 'win32') {
           // Windows: 프로세스 args 매칭이 까다로움 — taskkill로 chrome.exe만 처리하긴 위험하므로 lock 파일 삭제만
         }
