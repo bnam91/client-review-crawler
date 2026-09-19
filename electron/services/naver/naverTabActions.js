@@ -27,6 +27,11 @@ export async function waitForCaptchaIfNeeded(page, sendLog = null, maxMs = 30000
   const start = Date.now();
   let captchaDetected = false;
   let serviceDownDetected = false;
+  let loginWallDetected = false;
+  // ★막힌 상태는 «도중에 바뀐다»(실측: 장애 → 새로고침 → 로그인).
+  //   타임아웃 문구를 «처음 만난» 상태로 쓰면 사용자가 엉뚱한 걸 고치려 든다.
+  //   그래서 «마지막으로 관측된» 상태를 따로 기억해 그걸로 말한다.
+  let lastBlock = null;   // 'captcha' | 'outage' | 'login'
   let lastReloadAt = 0;
   const RELOAD_INTERVAL_MS = 30000; // 서비스 장애 시 30초마다 reload
 
@@ -40,11 +45,19 @@ export async function waitForCaptchaIfNeeded(page, sendLog = null, maxMs = 30000
           document.querySelector('#rcptForm') ||
           document.querySelector('#vcptForm')
         );
+        // ★로그인 리다이렉트도 «막힌 상태»다 (2026-09-19 실측으로 추가).
+        //   naverService는 «최초 진입 직후 1회»만 로그인 URL을 본다. 그 뒤에 리다이렉트되면
+        //   아무도 안 본다 — 실제로 「장애 페이지 → 새로고침 → 로그인 페이지」로 넘어갔는데
+        //   캡차·장애 마커가 없다는 이유로 「✅서비스 회복」이라 선언하고 진행해 0건으로 끝났다.
+        //   ⇒ «마커의 부재»를 «정상»으로 읽지 않으려면, 막힌 상태를 빠짐없이 알아야 한다.
+        //   ⚠️URL «전체»에 정규식을 걸면 쿼리스트링에 같은 문자열이 들어간 상품 URL을 오판한다.
+        //     판정은 «호스트»로 한다 — 로그인 페이지인지 아닌지는 호스트가 말해준다.
+        const loginWall = location.hostname === 'nid.naver.com';
         // 네이버 페이 인프라 장애 페이지: <strong class="title_error">현재 서비스 접속이 불가합니다.</strong>
         const errEl = document.querySelector('strong.title_error');
         const serviceUnavailable = !!errEl &&
           (errEl.textContent || '').includes('접속이 불가');
-        return { captcha, serviceUnavailable };
+        return { captcha, serviceUnavailable, loginWall };
       });
     } catch (e) {
       // navigation 중 evaluate 실패 — 잠시 대기 후 재시도
@@ -52,7 +65,7 @@ export async function waitForCaptchaIfNeeded(page, sendLog = null, maxMs = 30000
       continue;
     }
 
-    if (!probe.captcha && !probe.serviceUnavailable) {
+    if (!probe.captcha && !probe.serviceUnavailable && !probe.loginWall) {
       if (captchaDetected) {
         console.log('[NaverTabActions] ✅ 캡챠 통과 — 크롤링 계속 진행');
         sendLog?.('[정보] 캡챠 통과 — 크롤링 계속 진행', 'success');
@@ -61,10 +74,26 @@ export async function waitForCaptchaIfNeeded(page, sendLog = null, maxMs = 30000
         console.log('[NaverTabActions] ✅ 서비스 회복 — 크롤링 계속 진행');
         sendLog?.('[정보] 네이버 서비스 회복 — 크롤링 계속 진행', 'success');
       }
+      if (loginWallDetected) {
+        console.log('[NaverTabActions] ✅ 로그인 완료 — 크롤링 계속 진행');
+        sendLog?.('[정보] 로그인 완료 — 크롤링 계속 진행', 'success');
+      }
       return true;
     }
 
+    if (probe.loginWall) {
+      lastBlock = 'login';
+      if (!loginWallDetected) {
+        console.log('[NaverTabActions] 🔒 네이버 로그인 페이지 감지 — 사용자 로그인 대기');
+        sendLog?.('[🔒 로그인 필요] 열린 Chrome 창에서 네이버 로그인을 완료해 주세요. 완료하면 자동으로 이어집니다.', 'warning');
+        loginWallDetected = true;
+      }
+      await new Promise(r => setTimeout(r, 2000));
+      continue;
+    }
+
     if (probe.captcha) {
+      lastBlock = 'captcha';
       if (!captchaDetected) {
         console.log('[NaverTabActions] ⚠️ 캡챠 페이지 감지 — 사용자 해결 대기');
         sendLog?.('[⚠️ 캡챠 감지] 브라우저에서 캡챠를 풀어주세요. 풀면 자동으로 진행됩니다 (최대 5분 대기)', 'warning');
@@ -75,6 +104,7 @@ export async function waitForCaptchaIfNeeded(page, sendLog = null, maxMs = 30000
     }
 
     if (probe.serviceUnavailable) {
+      lastBlock = 'outage';
       if (!serviceDownDetected) {
         console.log('[NaverTabActions] ⚠️ "현재 서비스 접속이 불가합니다" 페이지 감지 — 자동 새로고침 시도');
         sendLog?.('[⚠️ 네이버 일시 장애] "현재 서비스 접속이 불가합니다" 페이지 감지. 30초마다 자동 새로고침 (최대 5분 대기)', 'warning');
@@ -94,12 +124,19 @@ export async function waitForCaptchaIfNeeded(page, sendLog = null, maxMs = 30000
     }
   }
 
-  if (captchaDetected) {
-    console.log('[NaverTabActions] ❌ 캡챠 대기 시간 초과 (5분)');
-    sendLog?.('[오류] 캡챠 대기 시간 초과 (5분). 다시 시도해주세요.', 'error');
-  } else if (serviceDownDetected) {
-    console.log('[NaverTabActions] ❌ 서비스 장애 회복 대기 시간 초과 (5분)');
-    sendLog?.('[오류] 네이버 서비스 회복 대기 시간 초과 (5분). 잠시 후 다시 시도해주세요.', 'error');
+  // ★«마지막으로 막고 있던» 상태로 말한다 (처음 만난 상태가 아니라).
+  // ⚠️maxMs는 «함수 시작부터»의 총 예산이다. 장애로 이미 몇 분 쓰고 로그인으로 넘어왔다면
+  //   로그인에 실제로 주어진 시간은 그보다 짧다 — 「5분 줬다」처럼 읽히지 않게 «총 대기»라고 쓴다.
+  const mins = Math.round(maxMs / 60000);
+  if (lastBlock === 'login') {
+    console.log('[NaverTabActions] ❌ 로그인 대기 시간 초과');
+    sendLog?.(`[오류] 총 ${mins}분을 기다렸지만 마지막까지 «로그인 화면»이었습니다. Chrome 창에서 네이버 로그인을 마친 뒤 다시 실행해 주세요.`, 'error');
+  } else if (lastBlock === 'captcha') {
+    console.log('[NaverTabActions] ❌ 캡챠 대기 시간 초과');
+    sendLog?.(`[오류] 총 ${mins}분을 기다렸지만 마지막까지 «보안확인(캡챠) 화면»이었습니다. Chrome 창에서 확인을 마친 뒤 다시 실행해 주세요.`, 'error');
+  } else if (lastBlock === 'outage') {
+    console.log('[NaverTabActions] ❌ 서비스 장애 회복 대기 시간 초과');
+    sendLog?.(`[오류] 네이버 접속 장애가 ${mins}분 안에 풀리지 않았습니다. 잠시 후 다시 시도해 주세요.`, 'error');
   }
   return false;
 }
@@ -206,7 +243,9 @@ export async function clickReviewOrQnATab(page, collectionType, sortOption = 0, 
   // 캡챠 페이지 감지 + 사용자 해결 대기 (URL이 /products/여도 캡챠 화면일 수 있음)
   const captchaOk = await waitForCaptchaIfNeeded(page, sendLog);
   if (!captchaOk) {
-    console.log('[NaverTabActions] ❌ 캡챠 미해결 — 모달 진입 중단');
+    // ★이 함수는 이제 캡차뿐 아니라 «장애 페이지·로그인 벽»도 기다린다.
+    //   사유를 뭉뚱그려 「캡챠 미해결」이라 적으면 로그를 읽는 사람이 엉뚱한 데를 본다.
+    console.log('[NaverTabActions] ❌ 페이지가 «막힌 상태»(캡차/장애/로그인)로 남아 모달 진입 중단');
     return;
   }
 

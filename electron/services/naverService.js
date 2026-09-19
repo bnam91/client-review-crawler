@@ -724,7 +724,14 @@ export async function handleNaver(browser, page, input, isUrl, collectionType = 
 
         if (qnaJudge.zeroYield) {
           sendLog(`[오류] Q&A를 1건도 수집하지 못했습니다 — 수집 «실패»입니다. (종료 사유: ${scrollFlags.terminationReason || '미확인'})`, 'error');
-          sendLog(`[안내] 네이버 화면 구조 변경이나 일시적 차단일 수 있습니다. 잠시 후 다시 실행해 주세요.`, 'info');
+          // ★같은 이유로 Q&A 쪽도 사유별로 가른다 (2026-09-19).
+          if (scrollFlags.terminationReason === 'no_scroll_container') {
+            sendLog(`[안내] Q&A 목록이 화면에 없었습니다. 열린 Chrome 창이 «상품 페이지»였는지 확인해 주세요 — 로그인이나 보안확인 화면이었다면 그것부터 통과해야 합니다.`, 'info');
+          } else if (scrollFlags.endedByRateLimit) {
+            sendLog(`[안내] 네이버 수집 제한에 막혀 한 건도 받지 못했습니다. 잠시(5~10분) 뒤에 다시 실행해 주세요.`, 'info');
+          } else {
+            sendLog(`[안내] 네이버 화면 구조 변경이나 일시적 차단일 수 있습니다. 잠시 후 다시 실행해 주세요.`, 'info');
+          }
         } else if (partial) {
           sendLog(`[완료] 부분수집: Q&A ${yieldSummary}`, 'warning');
         } else {
@@ -888,7 +895,16 @@ export async function handleNaver(browser, page, input, isUrl, collectionType = 
         console.log(`[NaverService] ✅ 총 ${allReviews.length}개의 리뷰를 추출했습니다. (부분수집=${partial}, 검증불가=${unverified}, 0건=${zeroYield}, 총계=${expectedTotal ?? '미확인'}/${expectedTotalSource}, 종료사유=${scrollFlags.terminationReason})`);
         if (zeroYield) {
           sendLog(`[오류] 리뷰를 1건도 수집하지 못했습니다 — 수집 «실패»입니다. (종료 사유: ${scrollFlags.terminationReason || '미확인'})`, 'error');
-          sendLog(`[안내] 네이버 화면 구조 변경이나 일시적 차단일 수 있습니다. 잠시 후 다시 실행하고, 계속 실패하면 앱 업데이트를 확인해 주세요.`, 'info');
+          // ★원인을 «모르면서» 하나로 단정하지 않는다 (2026-09-19 정정).
+          //   실측: 로그인 벽에 막혀 0건으로 끝난 실행에서도 「화면 구조 변경」이라 안내했다.
+          //   고객은 그 말을 믿고 엉뚱한 데를 본다 — 중단 사유별로 갈라서 말한다.
+          if (scrollFlags.terminationReason === 'no_scroll_container') {
+            sendLog(`[안내] 리뷰 목록이 화면에 없었습니다. 열린 Chrome 창이 «상품 페이지»였는지 확인해 주세요 — 로그인이나 보안확인 화면이었다면 그것부터 통과해야 합니다.`, 'info');
+          } else if (scrollFlags.endedByRateLimit) {
+            sendLog(`[안내] 네이버 수집 제한에 막혀 한 건도 받지 못했습니다. 잠시(5~10분) 뒤에 다시 실행해 주세요.`, 'info');
+          } else {
+            sendLog(`[안내] 네이버 화면 구조 변경이나 일시적 차단일 수 있습니다. 잠시 후 다시 실행하고, 계속 실패하면 앱 업데이트를 확인해 주세요.`, 'info');
+          }
         } else if (partial) {
           sendLog(`[완료] 부분수집: ${yieldSummary}`, 'warning');
         } else {
@@ -1237,7 +1253,14 @@ export async function handleNaver(browser, page, input, isUrl, collectionType = 
 
         if (qnaJudge.zeroYield) {
           sendLog(`[오류] Q&A를 1건도 수집하지 못했습니다 — 수집 «실패»입니다. (종료 사유: ${scrollFlags.terminationReason || '미확인'})`, 'error');
-          sendLog(`[안내] 네이버 화면 구조 변경이나 일시적 차단일 수 있습니다. 잠시 후 다시 실행해 주세요.`, 'info');
+          // ★같은 이유로 Q&A 쪽도 사유별로 가른다 (2026-09-19).
+          if (scrollFlags.terminationReason === 'no_scroll_container') {
+            sendLog(`[안내] Q&A 목록이 화면에 없었습니다. 열린 Chrome 창이 «상품 페이지»였는지 확인해 주세요 — 로그인이나 보안확인 화면이었다면 그것부터 통과해야 합니다.`, 'info');
+          } else if (scrollFlags.endedByRateLimit) {
+            sendLog(`[안내] 네이버 수집 제한에 막혀 한 건도 받지 못했습니다. 잠시(5~10분) 뒤에 다시 실행해 주세요.`, 'info');
+          } else {
+            sendLog(`[안내] 네이버 화면 구조 변경이나 일시적 차단일 수 있습니다. 잠시 후 다시 실행해 주세요.`, 'info');
+          }
         } else if (partial) {
           sendLog(`[완료] 부분수집: Q&A ${yieldSummary}`, 'warning');
         } else {
@@ -1401,7 +1424,16 @@ export async function handleNaver(browser, page, input, isUrl, collectionType = 
         console.log(`[NaverService] ✅ 총 ${allReviews.length}개의 리뷰를 추출했습니다. (부분수집=${partial}, 검증불가=${unverified}, 0건=${zeroYield}, 총계=${expectedTotal ?? '미확인'}/${expectedTotalSource}, 종료사유=${scrollFlags.terminationReason})`);
         if (zeroYield) {
           sendLog(`[오류] 리뷰를 1건도 수집하지 못했습니다 — 수집 «실패»입니다. (종료 사유: ${scrollFlags.terminationReason || '미확인'})`, 'error');
-          sendLog(`[안내] 네이버 화면 구조 변경이나 일시적 차단일 수 있습니다. 잠시 후 다시 실행하고, 계속 실패하면 앱 업데이트를 확인해 주세요.`, 'info');
+          // ★원인을 «모르면서» 하나로 단정하지 않는다 (2026-09-19 정정).
+          //   실측: 로그인 벽에 막혀 0건으로 끝난 실행에서도 「화면 구조 변경」이라 안내했다.
+          //   고객은 그 말을 믿고 엉뚱한 데를 본다 — 중단 사유별로 갈라서 말한다.
+          if (scrollFlags.terminationReason === 'no_scroll_container') {
+            sendLog(`[안내] 리뷰 목록이 화면에 없었습니다. 열린 Chrome 창이 «상품 페이지»였는지 확인해 주세요 — 로그인이나 보안확인 화면이었다면 그것부터 통과해야 합니다.`, 'info');
+          } else if (scrollFlags.endedByRateLimit) {
+            sendLog(`[안내] 네이버 수집 제한에 막혀 한 건도 받지 못했습니다. 잠시(5~10분) 뒤에 다시 실행해 주세요.`, 'info');
+          } else {
+            sendLog(`[안내] 네이버 화면 구조 변경이나 일시적 차단일 수 있습니다. 잠시 후 다시 실행하고, 계속 실패하면 앱 업데이트를 확인해 주세요.`, 'info');
+          }
         } else if (partial) {
           sendLog(`[완료] 부분수집: ${yieldSummary}`, 'warning');
         } else {

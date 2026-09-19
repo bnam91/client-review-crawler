@@ -317,7 +317,12 @@ export async function loadMoreReviews(page, targetCount = Infinity, options = {}
     if (scrollHeight === -1) {
       // 하드코딩 셀렉터도 폴백 탐색도 실패 — '완료'로 위장하지 말고 명시적 오류로 알린다.
       console.log(`[NaverPagination]   ⚠️ scroll container를 찾을 수 없습니다.`);
-      if (sendLog) sendLog(`[오류] 네이버 화면 구조가 바뀌어 리뷰 목록을 스크롤할 수 없습니다 — 앱 업데이트가 필요합니다`, 'error');
+      // ★«원인»을 여기서 단정하지 않는다 (2026-09-19 정정).
+      //   스크롤 컨테이너가 없는 이유는 여럿이다 — 화면 구조 변경일 수도, «로그인/보안확인 화면에
+      //   막혀 모달이 아예 안 열린» 것일 수도 있다. 실측에서 후자였는데도 「구조가 바뀌었다·앱 업데이트가
+      //   필요하다」고 단정해, 바깥 요약의 «맞는 안내»와 모순된 두 문장이 나란히 나갔다.
+      //   ⇒ 여기선 «본 것»만 말하고, 원인 추정은 사유를 아는 바깥(naverService)에 맡긴다.
+      if (sendLog) sendLog(`[오류] 리뷰 목록을 화면에서 찾지 못했습니다 — 수집을 계속할 수 없습니다`, 'error');
       if (flags) flags.endedByNoContainer = true;
       setTermination('no_scroll_container');
       break;

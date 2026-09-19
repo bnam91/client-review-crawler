@@ -243,7 +243,8 @@ export async function loadMoreQnAs(page, targetCount = Infinity, options = {}) {
       if (scrollHeight === -1) {
         // ② 구조 파손 — '완료'로 위장하지 말고 명시적 오류로 알린다.
         console.log(`[NaverQnAPagination]   ⚠️ scroll container/모달을 찾을 수 없습니다.`);
-        if (sendLog) sendLog(`[오류] 네이버 화면 구조가 바뀌어 Q&A 목록을 스크롤할 수 없습니다 — 앱 업데이트가 필요합니다`, 'error');
+        // ★원인 단정 금지 — 리뷰 쪽과 같은 이유 (naverPagination.js 주석 참조).
+        if (sendLog) sendLog(`[오류] Q&A 목록을 화면에서 찾지 못했습니다 — 수집을 계속할 수 없습니다`, 'error');
         if (flags) flags.endedByNoContainer = true;
         setTermination('no_scroll_container');
         break;
