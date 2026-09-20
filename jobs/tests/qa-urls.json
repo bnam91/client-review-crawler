@@ -1,0 +1,97 @@
+{
+  "_설명": "리뷰 수집 QA용 URL 세트. ★릴리스 전 회귀는 이 표를 «전부» 돌린다.",
+  "_왜": [
+    "2026-09-19 이가을 고객 건의 근본 원인은 «검증을 브랜드스토어로만 했다»는 것이었다.",
+    "스마트스토어 상품으로 테스트한 기록이 0건이라, 호스트별 엔드포인트 차이(/n/v1/ vs /i/v1/)를",
+    "아무도 몰랐고 스마트스토어 상품은 전부 느린 예비경로로 떨어지고 있었다.",
+    "⇒ «유형»을 표로 고정해 두지 않으면 같은 구멍이 또 생긴다."
+  ],
+  "_갱신": "2026-09-19 (리뷰 수는 실측 시점 값이라 변한다 — 대략의 규모로만 쓸 것)",
+  "_주의": "⚠️네이버가 상품 페이지에 로그인/보안확인을 요구할 수 있다. 막히면 «앱 결함»이 아니라 환경이다 — 먼저 Chrome 창에서 통과시키고 재시도할 것.",
+
+  "지원_유형": [
+    {
+      "id": "brand-small",
+      "유형": "브랜드스토어 · 일반 · 소형",
+      "url": "https://brand.naver.com/braun/products/13726480753",
+      "리뷰_대략": 46,
+      "기대": { "경로": "API", "api": "/n/v1/contents/reviews/query-pages", "그룹상품": false },
+      "노리는_것": "가장 기본. 여기가 깨지면 전부 깨진 것."
+    },
+    {
+      "id": "brand-mid",
+      "유형": "브랜드스토어 · 일반 · 중형",
+      "url": "https://brand.naver.com/stokke/products/12838347719",
+      "리뷰_대략": 121,
+      "기대": { "경로": "API", "api": "/n/v1/contents/reviews/query-pages", "그룹상품": false },
+      "노리는_것": "여러 페이지 페이징이 도는 최소 규모."
+    },
+    {
+      "id": "brand-large",
+      "유형": "브랜드스토어 · 일반 · 대형",
+      "url": "https://brand.naver.com/frankliin/products/12349245886",
+      "리뷰_대략": 5397,
+      "기대": { "경로": "API", "api": "/n/v1/contents/reviews/query-pages", "그룹상품": false },
+      "노리는_것": "★429(약 100페이지마다)를 만나 «대기 후 이어받기»가 도는지."
+    },
+    {
+      "id": "brand-xlarge",
+      "유형": "브랜드스토어 · 일반 · 초대형",
+      "url": "https://brand.naver.com/braun/products/597638764",
+      "리뷰_대략": 9552,
+      "기대": { "경로": "API", "api": "/n/v1/contents/reviews/query-pages", "그룹상품": false },
+      "노리는_것": "★토큰 노화 → 모달 재진입 갱신 경로. 429가 여러 번 온다."
+    },
+    {
+      "id": "smart-large",
+      "유형": "스마트스토어 · 일반 · 대형  ★이가을 고객 건",
+      "url": "https://smartstore.naver.com/jjobi/products/3468054750",
+      "리뷰_대략": 5077,
+      "기대": { "경로": "API", "api": "/i/v1/contents/reviews/query-pages", "그룹상품": false },
+      "노리는_것": "★호스트별 엔드포인트(/i/v1/) + 인증헤더 승계. 고치기 전엔 여기서 예비경로로 떨어졌다."
+    },
+    {
+      "id": "smart-large-tracked",
+      "유형": "스마트스토어 · 추적 파라미터가 붙은 «원본 링크»",
+      "url": "https://smartstore.naver.com/jjobi/products/3468054750?nl-ts-pid=jqzkIlqXKZGssSKlqOd-499706&NaPm=ct%3Dmu6l55v7%7Cci%3DrBim9AAAAaCzOw0dAJdgNQ%2E%2E01%7Ctr%3Dpmax%7Chk%3D0c55d907b6fc326a0107e027fe19072983e94792%7Cnacn%3DRcFhB8Q1H26h",
+      "리뷰_대략": 5077,
+      "기대": { "경로": "API", "api": "/i/v1/contents/reviews/query-pages", "그룹상품": false },
+      "노리는_것": "★실측(2026-09-19): 파라미터를 «뗀» 깔끔한 URL은 보안확인으로 튕기는데 이 원본 링크는 열렸다. 고객이 주소창에서 복사한 그대로 받는 게 유리하다."
+    }
+  ],
+
+  "미확보_유형": [
+    {
+      "id": "group-product",
+      "유형": "그룹상품 (여러 상품이 묶인 것) — 브랜드·스마트 양쪽",
+      "url": null,
+      "기대": { "api": "/{n|i}/v1/contents/reviews/group-products/query-pages" },
+      "상태": "⛔라이브 URL 미확보 (2026-09-19 braun 5개·stokke·frankliin에서 안 나옴)",
+      "대체_커버": "jobs/tests/naver-api-fix.test.mjs 의 정규식 단위검증이 양쪽 호스트 × group-products 조합을 검사한다. 다만 «라이브»로는 확인 못 했다.",
+      "왜_중요": "2026-08-18에 group-products 한 조각을 안 받아서 그 유형이 «전부» 예비경로로 떨어진 전력이 있다."
+    },
+    {
+      "id": "review-zero",
+      "유형": "리뷰 0건 상품",
+      "url": null,
+      "상태": "미확보",
+      "노리는_것": "0건을 «실패»로 볼지 «정상»으로 볼지 — 지금은 0건이면 실패로 끝난다. 진짜 0건 상품에서 오탐하는지 확인 필요."
+    },
+    {
+      "id": "review-over-20k",
+      "유형": "리뷰 2만건 초과 상품",
+      "url": null,
+      "상태": "미확보",
+      "노리는_것": "네이버가 1,000페이지(=2만건)에서 끊는다(2026-08-18 실측). 그 상한 안내가 제대로 나가는지."
+    }
+  ],
+
+  "미지원_유형_회귀감시": {
+    "_설명": "★앱이 «입력은 받아주는데 진행은 못 하는» 유형들. 2026-09-19 고디브 스킬의 URL 판정과 대조해 발견했다. 이번 릴리스 범위 밖이지만, 고객이 넣을 수 있는 형태라 기록해 둔다.",
+    "항목": [
+      { "유형": "가격비교", "예": "https://shopping.naver.com/catalog/...", "렌더러": "받아줌", "백엔드": "상품으로 인정 안 함" },
+      { "유형": "/items/ 패턴", "예": "https://smartstore.naver.com/{store}/items/...", "렌더러": "받아줌", "백엔드": "상품으로 인정 안 함" },
+      { "유형": "naver.me 단축링크", "예": "https://naver.me/xxxxx", "렌더러": "거부", "백엔드": "거부" }
+    ]
+  }
+}
